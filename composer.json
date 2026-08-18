@@ -1,0 +1,54 @@
+{
+    "name": "splicewire/laravel-beam-dev",
+    "description": "Session-scoped scratch databases for Laravel development and testing. Create an isolated database per test run so concurrent suites stop clobbering each other, provision it from SQL before the first migration, and reap it afterwards behind guards that refuse production, the app's own database, and any database another run is still connected to.",
+    "keywords": ["laravel", "testing", "database", "postgres", "mysql", "sqlite", "developer-tools", "splicewire", "beam"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Stephen Rushing",
+            "email": "stephen@rushing.dev"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "illuminate/console": "^11.0|^12.0|^13.0",
+        "illuminate/contracts": "^11.0|^12.0|^13.0",
+        "illuminate/database": "^11.0|^12.0|^13.0",
+        "illuminate/support": "^11.0|^12.0|^13.0",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.0",
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^11.0|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Splicewire\\Beam\\Dev\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Splicewire\\Beam\\Dev\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "1.0.x-dev"
+        },
+        "laravel": {
+            "providers": [
+                "Splicewire\\Beam\\Dev\\BeamDevServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "test": "@php vendor/bin/phpunit",
+        "pint": "@php -d memory_limit=512M vendor/bin/pint"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
