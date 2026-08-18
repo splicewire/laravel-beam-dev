@@ -28,7 +28,7 @@ class BeamDevServiceProvider extends PackageServiceProvider
     {
         $package
             ->name('laravel-beam-dev')
-            ->hasConfigFile('beam-dev');
+            ->hasConfigFile('beam/dev');
     }
 
     public function packageRegistered(): void

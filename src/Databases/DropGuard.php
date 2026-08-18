@@ -51,7 +51,7 @@ class DropGuard
 
         if (! $force && ! str_starts_with($name, $prefix)) {
             return "[{$name}] does not start with the scratch prefix [{$prefix}]. "
-                ."Rename it, change config('beam-dev.prefix'), or pass --force if you are certain.";
+                ."Rename it, change config('beam.dev.prefix'), or pass --force if you are certain.";
         }
 
         $active = $this->databases->activeConnections($name, $connection);

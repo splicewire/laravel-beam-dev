@@ -55,7 +55,7 @@ class CommandsTest extends TestCase
      */
     public function test_it_emits_every_configured_env_var(): void
     {
-        config()->set('beam-dev.env', ['DB_DATABASE', 'TEST_DB_DATABASE']);
+        config()->set('beam.dev.env', ['DB_DATABASE', 'TEST_DB_DATABASE']);
 
         $output = $this->runCommand('splicewire:beam:dev:isolated-test-db', ['--slug' => 'pair']);
 

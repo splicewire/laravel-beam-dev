@@ -33,7 +33,7 @@ class DropDbCommand extends Command
     public function handle(ScratchDatabases $databases, DropGuard $guard): int
     {
         $connection = (string) ($this->option('connection') ?: config('database.default'));
-        $prefix = (string) config('beam-dev.prefix', 'test_');
+        $prefix = (string) config('beam.dev.prefix', 'test_');
 
         try {
             $targets = $this->targets($databases, $connection, $prefix);

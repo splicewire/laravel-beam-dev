@@ -53,7 +53,7 @@ php artisan splicewire:beam:dev:drop-db --pattern='test\_ci\_%'
 | `--connection=` | Borrow host/port/credentials from this connection (default: the app default) |
 | `--name=` / `--slug=` | Set the database name outright, or just its suffix |
 | `--init=` | SQL file(s) to run inside the new database before anything migrates |
-| `--var=` | Extra env var names to emit, beyond `config('beam-dev.env')` |
+| `--var=` | Extra env var names to emit, beyond `config('beam.dev.env')` |
 | `--drop-existing` | Recreate if it already exists |
 | `--dry-run` | (drop) Report what would go, change nothing |
 | `--force` | (drop) Allow names outside the scratch prefix — see the guards |
@@ -65,7 +65,7 @@ nothing new to configure and nothing to keep in sync.
 ## Configuration
 
 ```php
-// config/beam-dev.php
+// config/beam/dev.php
 return [
     'prefix' => env('BEAM_DEV_DB_PREFIX', 'test_'),
     'env'    => ['DB_DATABASE'],

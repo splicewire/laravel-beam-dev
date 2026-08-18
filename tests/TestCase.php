@@ -32,8 +32,8 @@ abstract class TestCase extends Orchestra
             'prefix' => '',
         ]);
 
-        $app['config']->set('beam-dev.prefix', 'test_');
-        $app['config']->set('beam-dev.env', ['DB_DATABASE']);
+        $app['config']->set('beam.dev.prefix', 'test_');
+        $app['config']->set('beam.dev.env', ['DB_DATABASE']);
     }
 
     protected function tearDown(): void

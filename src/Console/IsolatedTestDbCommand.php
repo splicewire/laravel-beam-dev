@@ -74,7 +74,7 @@ class IsolatedTestDbCommand extends Command
             return (string) $explicit;
         }
 
-        $prefix = (string) config('beam-dev.prefix', 'test_');
+        $prefix = (string) config('beam.dev.prefix', 'test_');
         $slug = (string) ($this->option('slug') ?: Str::lower(Str::random(8)));
 
         return $prefix.preg_replace('/[^A-Za-z0-9_]/', '_', $slug);
@@ -85,7 +85,7 @@ class IsolatedTestDbCommand extends Command
      */
     private function initFiles(): array
     {
-        $files = $this->option('init') ?: config('beam-dev.init', []);
+        $files = $this->option('init') ?: config('beam.dev.init', []);
 
         return array_values(array_map(
             static fn ($path) => str_starts_with((string) $path, '/') ? (string) $path : base_path((string) $path),
@@ -99,13 +99,13 @@ class IsolatedTestDbCommand extends Command
      * This is the step that is easy to get half-right by hand and is the reason isolation "doesn't
      * work" when someone tries it. A project often reads its test database from one variable while
      * other connections on the same server read another, so overriding only the first still leaves
-     * part of the app talking to the shared database. `config('beam-dev.env')` lists every variable
+     * part of the app talking to the shared database. `config('beam.dev.env')` lists every variable
      * a given project needs set; the default covers the common Laravel pair.
      */
     private function emitEnv(string $name, ?string $replacing): void
     {
         $vars = array_values(array_unique(array_merge(
-            (array) config('beam-dev.env', ['DB_DATABASE']),
+            (array) config('beam.dev.env', ['DB_DATABASE']),
             (array) $this->option('var'),
         )));
 
