@@ -96,6 +96,42 @@ class CommandsTest extends TestCase
         $this->assertFalse($databases->exists('test_two', 'scratch'));
     }
 
+    /**
+     * Parallel workers make databases nobody named. Reaping the parent without them is how strays
+     * accumulate — and by the time they turn up in a `--all` sweep, nobody can attribute them.
+     */
+    public function test_dropping_a_database_also_drops_its_parallel_worker_databases(): void
+    {
+        $databases = $this->app->make(ScratchDatabases::class);
+        $databases->create('test_session', 'scratch');
+        $databases->create('test_session_test_1', 'scratch');
+        $databases->create('test_session_test_2', 'scratch');
+        $databases->create('test_sessionx', 'scratch');
+
+        $this->artisan('splicewire:beam:dev:drop-db', ['names' => ['test_session']])->assertSuccessful();
+
+        $this->assertFalse($databases->exists('test_session', 'scratch'));
+        $this->assertFalse($databases->exists('test_session_test_1', 'scratch'));
+        $this->assertFalse($databases->exists('test_session_test_2', 'scratch'));
+
+        // The underscores in the derived pattern are escaped, so a neighbouring name that merely
+        // shares the prefix is not swept in as a "worker".
+        $this->assertTrue($databases->exists('test_sessionx', 'scratch'));
+    }
+
+    public function test_keep_workers_leaves_the_worker_databases_alone(): void
+    {
+        $databases = $this->app->make(ScratchDatabases::class);
+        $databases->create('test_keep', 'scratch');
+        $databases->create('test_keep_test_1', 'scratch');
+
+        $this->artisan('splicewire:beam:dev:drop-db', ['names' => ['test_keep'], '--keep-workers' => true])
+            ->assertSuccessful();
+
+        $this->assertFalse($databases->exists('test_keep', 'scratch'));
+        $this->assertTrue($databases->exists('test_keep_test_1', 'scratch'));
+    }
+
     public function test_all_sweeps_only_the_prefix(): void
     {
         $databases = $this->app->make(ScratchDatabases::class);

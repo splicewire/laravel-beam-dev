@@ -26,6 +26,7 @@ class DropDbCommand extends Command
         {--pattern= : SQL LIKE pattern to match instead of naming databases (e.g. test\_%)}
         {--all : Drop every database matching the configured scratch prefix}
         {--dry-run : Report what would be dropped without dropping anything}
+        {--keep-workers : Do not also drop the <name>_test_<token> parallel-worker databases}
         {--force : Allow names outside the scratch prefix (never overrides the other guards)}';
 
     protected $description = 'Drop scratch databases, one or many, with guards';
@@ -91,7 +92,11 @@ class DropDbCommand extends Command
         $names = (array) $this->argument('names');
 
         if ($names !== []) {
-            return array_values(array_map('strval', $names));
+            $named = array_values(array_map('strval', $names));
+
+            return $this->option('keep-workers')
+                ? $named
+                : $this->withParallelWorkers($databases, $connection, $named);
         }
 
         if ($pattern = $this->option('pattern')) {
@@ -107,5 +112,39 @@ class DropDbCommand extends Command
         throw new \InvalidArgumentException(
             'Name at least one database, or pass --pattern / --all. Refusing to guess what to drop.'
         );
+    }
+
+    /**
+     * Expand each named database to include the parallel-worker databases derived from it.
+     *
+     * Laravel's parallel testing gives each worker `<database>_test_<token>` — and so does any host
+     * bootstrap that agrees with that convention. They are children of the database you named: you
+     * did not choose their names, you will not remember how many were made, and nothing else will
+     * ever reap them. Reaping the parent without them is how a `--all` sweep months later turns up a
+     * dozen strays nobody can attribute.
+     *
+     * Only databases that actually exist are added, so this never turns a clean drop into a
+     * "does not exist" warning, and every guard still applies to each one individually — a worker
+     * another run is live on is skipped exactly like any other busy database.
+     *
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    private function withParallelWorkers(ScratchDatabases $databases, string $connection, array $names): array
+    {
+        $targets = [];
+
+        foreach ($names as $name) {
+            $targets[] = $name;
+
+            // Escape both underscores: unescaped, LIKE reads each as a single-character wildcard.
+            $like = str_replace('_', '\_', $name).'\_test\_%';
+
+            foreach ($databases->names($connection, $like) as $worker) {
+                $targets[] = $worker;
+            }
+        }
+
+        return array_values(array_unique($targets));
     }
 }

@@ -69,6 +69,29 @@ whether the schema on disk still matches the schema in the database.
 
 `--drop-existing` is the opt-out when you do want a virgin database under the same name.
 
+### Parallel workers are reaped with their parent
+
+Laravel's parallel testing gives each worker its own database, named `<database>_test_<token>`. You
+never chose those names, you will not remember how many were made, and nothing else will ever reap
+them — so `drop-db` takes them down with the database they hang off:
+
+```bash
+php artisan splicewire:beam:dev:drop-db test_<id> --dry-run
+# Would drop test_<id>.
+# Would drop test_<id>_test_1.
+# … through _test_4
+```
+
+Every guard still applies to each one individually, so a worker database another run is live on is
+skipped exactly like any other busy database. `--keep-workers` opts out.
+
+Note the framework creates those databases but does **not** run `--init` provisioning against them,
+so on a project whose schema needs extensions installed first, `--parallel` fails inside the first
+migration that needs one — and blames the migration. The fix belongs in the host's test bootstrap
+(give each worker process a provisioned database and set
+`LARAVEL_PARALLEL_TESTING_WITHOUT_DATABASES`), not here: by the time this package's commands could
+run, the worker is already booted.
+
 ### Options
 
 | option | |
@@ -79,6 +102,7 @@ whether the schema on disk still matches the schema in the database.
 | `--var=` | Extra env var names to emit, beyond `config('beam.dev.env')` |
 | `--drop-existing` | Recreate if it already exists |
 | `--dry-run` | (drop) Report what would go, change nothing |
+| `--keep-workers` | (drop) Leave the `<name>_test_<token>` parallel-worker databases in place |
 | `--force` | (drop) Allow names outside the scratch prefix — see the guards |
 
 `--connection` is how credentials work: the DSN your project already configured is the one known to
