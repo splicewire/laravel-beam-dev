@@ -17,8 +17,9 @@ mid-suite. What you see is rows vanishing, phantom unique collisions, and rollba
 the server — failures that look exactly like real regressions in whatever you were working on. People
 lose hours to it, and the tell ("passes alone, fails in a full run") is easy to misread as flakiness.
 
-The fix is a database per run. The reason people don't bother is that doing it by hand is fiddly in
-four separate ways, and getting three of them right still leaves you with a broken setup.
+The fix is a database per **session** — not per run; see [One database per session](#one-database-per-session-not-per-run).
+The reason people don't bother is that doing it by hand is fiddly in four separate ways, and getting
+three of them right still leaves you with a broken setup.
 
 ## Usage
 
@@ -45,6 +46,28 @@ php artisan splicewire:beam:dev:drop-db test_one test_two test_three
 php artisan splicewire:beam:dev:drop-db --all --dry-run
 php artisan splicewire:beam:dev:drop-db --pattern='test\_ci\_%'
 ```
+
+### One database per session, not per run
+
+Called bare, the command mints a **random** name, so calling it twice hands you two databases — two
+cold migrations to pay for and two to remember to reap. Name it instead, and every later call in the
+session reuses the one you already have:
+
+```bash
+php artisan splicewire:beam:dev:isolated-test-db --slug=$MY_SESSION_ID
+# first call  → Created test_<id> on connection pgsql.
+# every later → Reusing existing test_<id> on connection pgsql.
+```
+
+That is the whole difference between isolation being free and isolation being a tax. Measured in
+`splicewire/splicewire-app` (246 migrations across central, package and tenant paths): a **cold**
+database costs ~2.5s to migrate, a **reused** one ~0.2s to re-enter — but only if the project's test
+harness notices it is already migrated. Most do not: a `RefreshDatabase`-style setup drops and
+re-migrates on entry regardless, and then reuse buys nothing. If your harness rebuilds unconditionally,
+that is the thing to fix; this command cannot fix it from outside, because only the harness knows
+whether the schema on disk still matches the schema in the database.
+
+`--drop-existing` is the opt-out when you do want a virgin database under the same name.
 
 ### Options
 
