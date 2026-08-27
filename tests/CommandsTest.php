@@ -30,7 +30,7 @@ class CommandsTest extends TestCase
      */
     private function pathFor(string $name): string
     {
-        return sys_get_temp_dir()."/beam-dev-tests/{$name}.sqlite";
+        return $this->scratchDir()."/{$name}.sqlite";
     }
 
     public function test_it_creates_a_scratch_database_and_prints_the_env(): void

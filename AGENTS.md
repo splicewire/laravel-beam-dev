@@ -58,7 +58,11 @@ identifier charset and rejected, never escaped.
 ## Testing
 
 The suite runs on SQLite over a temp directory, so it exercises the real create / list / drop paths
-with no database server in CI. The guard has a test per rule, including the two force cannot override.
+with no database server in CI. That directory is **per-run** — `TestCase::scratchDir()` keys it on
+`getmypid()` plus a random suffix, and `tearDown` reaps only that directory. It used to be the fixed
+`sys_get_temp_dir().'/beam-dev-tests'`, which two concurrent sessions shared: one's `tearDown` glob
+unlinked the other's databases mid-run, and the `--all` sweep under test could drop them outright.
+Anything a test writes to disk goes under `scratchDir()`, never a constant path. The guard has a test per rule, including the two force cannot override.
 When adding an engine branch, assert its SQL by inspection rather than reaching for a live server.
 
 ## Vendored family-package conventions
