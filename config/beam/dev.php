@@ -30,8 +30,48 @@ return [
     | connection (a `central` alongside a tenant one, a reporting replica, a queue
     | database), name its variable here too.
     |
+    | You do not have to get this right for isolation to work. `isolated-test-db` also READS
+    | the project's test harness (tests/*.php, phpunit.xml, testbench.yaml, .env.testing) for
+    | any `env('*DB_DATABASE')` it selects its database with, and emits the union of the two
+    | lists — saying out loud which files it read them from. This list is how you stop
+    | rediscovering; it is not what makes the tool correct.
+    |
     */
     'env' => ['DB_DATABASE'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Where the harness scan looks
+    |--------------------------------------------------------------------------
+    |
+    | Null means the sensible pair: the working directory and the application base path.
+    | Both, because under `vendor/bin/testbench` the base path is the testbench SKELETON in
+    | vendor/ and the harness worth reading is in the repo you are standing in.
+    |
+    | An EMPTY array disables discovery entirely, and then `config('beam.dev.env')` above is
+    | the only source of env var names. That is a deliberate choice with a cost: it is the
+    | configuration under which this tool once printed a variable no suite read.
+    |
+    */
+    'harness_paths' => null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Where SQLite scratch files live
+    |--------------------------------------------------------------------------
+    |
+    | Null means a project-scoped directory under the system temp dir. Deliberately NOT
+    | beside the connection's own database file: scratch this tool creates must never turn
+    | up in a consumer's `git status`, and the old `dirname($configured)` rule resolved to
+    | the process's working directory whenever the connection was `:memory:` — which is how
+    | a stray `test_<slug>.sqlite` ended up committed-adjacent in a package repo root.
+    |
+    | The directory is stable rather than pid-keyed on purpose: the drop runs in a different
+    | process than the create and has to be able to find the file. The SESSION key is the
+    | file NAME (`test_<random>`), which is what actually keeps two runs apart.
+    |
+    */
+    'sqlite_dir' => env('BEAM_DEV_SQLITE_DIR'),
 
     /*
     |--------------------------------------------------------------------------

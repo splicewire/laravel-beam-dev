@@ -31,7 +31,7 @@ class ScratchDatabases
     public function exists(string $name, string $connection): bool
     {
         if ($this->isSqlite($connection)) {
-            return is_file($this->sqlitePath($name, $connection));
+            return is_file($this->sqlitePath($name));
         }
 
         return $this->names($connection, $name) !== [];
@@ -49,7 +49,7 @@ class ScratchDatabases
         }
 
         if ($this->isSqlite($connection)) {
-            $path = $this->sqlitePath($name, $connection);
+            $path = $this->sqlitePath($name);
             @mkdir(dirname($path), 0755, true);
             touch($path);
 
@@ -73,7 +73,7 @@ class ScratchDatabases
         }
 
         if ($this->isSqlite($connection)) {
-            $path = $this->sqlitePath($name, $connection);
+            $path = $this->sqlitePath($name);
 
             // Reporting "it did not exist" for a file that exists and would not delete is the same
             // lie in miniature — the caller believes it was reaped and it is still there.
@@ -224,7 +224,7 @@ class ScratchDatabases
     public function targetValue(string $name, string $connection): string
     {
         return $this->isSqlite($connection)
-            ? $this->sqlitePath($name, $connection)
+            ? $this->sqlitePath($name)
             : $name;
     }
 
@@ -250,12 +250,46 @@ class ScratchDatabases
         return $this->server->driverFor($connection) === 'sqlite';
     }
 
-    private function sqlitePath(string $name, string $connection): string
+    private function sqlitePath(string $name): string
     {
-        $configured = (string) ($this->config->get("database.connections.{$connection}.database") ?: database_path('database.sqlite'));
-        $dir = is_dir($configured) ? $configured : dirname($configured);
+        return rtrim($this->sqliteDirectory(), '/')."/{$name}.sqlite";
+    }
 
-        return rtrim($dir, '/')."/{$name}.sqlite";
+    /**
+     * Where SQLite scratch files live — deliberately NOT next to the connection's own database.
+     *
+     * The old rule was `dirname($configured)`, which put scratch files wherever the project keeps its
+     * real one. Two things were wrong with that, one fatal and one merely rude. `dirname(':memory:')`
+     * is `.`, so under a package testbench harness a "scratch database" was a file dropped in
+     * whatever directory the command was run from — that is where the stray `test_k2uauqv7.sqlite`
+     * in tower's repo root came from, and {@see IsolationGuard} now refuses that connection outright.
+     * The rude half survives the guard: on a project with a genuine `database/database.sqlite`, every
+     * isolated run littered a tracked directory of someone else's repo.
+     *
+     * So scratch goes to the system temp directory, under a segment derived from the project root.
+     * Three properties, and each one is load-bearing:
+     *
+     * - **Outside the repo.** Nothing this tool makes should ever show up in a consumer's
+     *   `git status`.
+     * - **Project-scoped**, so a `--all` sweep here cannot reach a different project's scratch files.
+     * - **Stable across processes**, because create and drop are separate invocations. This is the
+     *   one place the estate's pid-keying rule is deliberately not applied to the DIRECTORY: a
+     *   pid-keyed directory would be unreachable by the drop that has to reap it. The SESSION key
+     *   lives in the file NAME instead — `test_<random>` — which is what actually prevents two
+     *   concurrent runs from sharing a database.
+     *
+     * `config('beam.dev.sqlite_dir')` overrides it outright, which is how this package's own harness
+     * keeps every test's files inside its own pid-keyed directory.
+     */
+    private function sqliteDirectory(): string
+    {
+        $configured = (string) $this->config->get('beam.dev.sqlite_dir', '');
+
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        return sys_get_temp_dir().'/beam-dev-sqlite/'.substr(sha1(base_path()), 0, 12);
     }
 
     /**
@@ -263,7 +297,7 @@ class ScratchDatabases
      */
     private function sqliteNames(string $connection, ?string $like): array
     {
-        $dir = dirname($this->sqlitePath('x', $connection));
+        $dir = $this->sqliteDirectory();
         $names = [];
 
         foreach (glob(rtrim($dir, '/').'/*.sqlite') ?: [] as $file) {

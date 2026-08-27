@@ -33,6 +33,10 @@ class InMemoryConnectionTest extends TestCase
 
         $app['config']->set('beam.dev.prefix', 'test_');
         $app['config']->set('beam.dev.env', ['DB_DATABASE']);
+
+        // Discovery off: this test is about the CONNECTION guard, and leaving the scan pointed at
+        // beam-dev's own tests/ would let a second, unrelated refusal answer first.
+        $app['config']->set('beam.dev.harness_paths', []);
     }
 
     public function test_creating_against_an_in_memory_connection_is_refused(): void

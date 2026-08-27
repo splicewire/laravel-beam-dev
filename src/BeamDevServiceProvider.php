@@ -9,6 +9,7 @@ use Splicewire\Beam\Dev\Console\IsolatedTestDbCommand;
 use Splicewire\Beam\Dev\Databases\DropGuard;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
 use Splicewire\Beam\Dev\Databases\ServerConnection;
+use Splicewire\Beam\Dev\Databases\SuiteHarness;
 
 /**
  * Local-development tooling for Laravel apps: scratch databases that are cheap to create and safe
@@ -46,6 +47,18 @@ class BeamDevServiceProvider extends PackageServiceProvider
         $this->app->singleton(DropGuard::class, fn ($app) => new DropGuard(
             $app,
             $app->make(ScratchDatabases::class),
+        ));
+
+        // The roots the harness scan reads. `base_path()` alone is wrong for the case this exists to
+        // fix: under `vendor/bin/testbench` it is the testbench SKELETON inside vendor/, and the
+        // harness the caller cares about is in the repo they are standing in — which is `getcwd()`.
+        // Both are searched, most specific first, and a project may pin the list outright.
+        $this->app->singleton(SuiteHarness::class, fn ($app) => new SuiteHarness(
+            $app['config'],
+            array_values(array_unique(array_filter(
+                (array) ($app['config']->get('beam.dev.harness_paths') ?? [getcwd(), $app->basePath()]),
+                static fn ($path) => is_string($path) && $path !== '' && is_dir($path),
+            ))),
         ));
     }
 

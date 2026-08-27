@@ -99,7 +99,8 @@ run, the worker is already booted.
 | `--connection=` | Borrow host/port/credentials from this connection (default: the app default) |
 | `--name=` / `--slug=` | Set the database name outright, or just its suffix |
 | `--init=` | SQL file(s) to run inside the new database before anything migrates |
-| `--var=` | Extra env var names to emit, beyond `config('beam.dev.env')` |
+| `--var=` | Extra env var names to emit, beyond `config('beam.dev.env')` and what the harness scan found |
+| `--any-driver` | Proceed even though your test harness pins a different driver |
 | `--drop-existing` | Recreate if it already exists |
 | `--dry-run` | (drop) Report what would go, change nothing |
 | `--keep-workers` | (drop) Leave the `<name>_test_<token>` parallel-worker databases in place |
@@ -114,9 +115,11 @@ nothing new to configure and nothing to keep in sync.
 ```php
 // config/beam/dev.php
 return [
-    'prefix' => env('BEAM_DEV_DB_PREFIX', 'test_'),
-    'env'    => ['DB_DATABASE'],
-    'init'   => [],
+    'prefix'         => env('BEAM_DEV_DB_PREFIX', 'test_'),
+    'env'            => ['DB_DATABASE'],
+    'harness_paths'  => null,   // null = cwd + base path; [] = disable discovery
+    'sqlite_dir'     => env('BEAM_DEV_SQLITE_DIR'),
+    'init'           => [],
 ];
 ```
 
@@ -126,6 +129,19 @@ connections on the same server read `DB_DATABASE` — override only the first an
 still talking to the shared database, so the isolation silently does nothing. If you have a second
 connection (a `central` alongside a tenant one, a reporting replica, a queue database), name its
 variable here too.
+
+You don't have to get it right for isolation to work, though — see *Reading your harness* below. This
+list is how you stop rediscovering; it is not what makes the tool correct.
+
+**`harness_paths`** is where that scan looks. `null` means the working directory plus the application
+base path — both, because under `vendor/bin/testbench` the base path is the testbench *skeleton*
+inside `vendor/` and the harness worth reading is in the repo you're standing in. An empty array
+disables discovery.
+
+**`sqlite_dir`** is where SQLite scratch files live: by default a project-scoped directory under the
+system temp dir, deliberately *not* beside the connection's own database. Nothing this tool creates
+should ever show up in your `git status`. The directory is stable rather than pid-keyed because the
+drop runs in a different process than the create; the session key is the file *name*.
 
 **`init` is the other.** A bare `CREATE DATABASE` looks fine, and then the first migration needing
 `citext`, `vector` or a role dies with an error about the extension rather than about the missing
@@ -155,6 +171,53 @@ SQLite connection, and the command used to report `Created test_xxxxxxxx`, touch
 `test_xxxxxxxx.sqlite` in the process's working directory (`dirname(':memory:')` is `.`), and emit an
 env assignment pointing at nothing — so a session that asked for isolation got a success message and
 none. A refusal you can act on beats a success you cannot.
+
+## Reading your harness
+
+`config('beam.dev.env')` is a *declaration*. What your test files actually read is an *observation*,
+and the command makes it: it scans `tests/**.php`, `phpunit.xml`, `testbench.yaml` and `.env.testing`
+for any `env('*DB_DATABASE')` the harness selects its database with, and for the drivers it pins. Then
+it emits the **union** of the declared list and the discovered one, and names the files it read them
+from:
+
+```
+Read from this project's test harness: TEST_DB_DATABASE (in tests/TenantTestCase.php).
+Add to config('beam.dev.env') to declare rather than rediscover.
+
+Run your suite against it:
+  DB_DATABASE=test_ab12cd34 TEST_DB_DATABASE=test_ab12cd34 php artisan test
+```
+
+A variable your suite ignores costs nothing. A variable your suite reads and nobody set is the whole
+defect — measured in a testbench package whose `TenantTestCase` reads `env('TEST_DB_DATABASE')` while
+the command printed `DB_DATABASE=`, so a session ran its "isolated" suite against the shared database
+and read 48 failures that were 2 once it genuinely had its own.
+
+The same evidence drives a refusal. Point the command at a SQLite connection while your harness pins
+pgsql and it stops, rather than handing back an env line that would isolate nothing:
+
+```
+  ERROR  Connection [testing] is SQLite, but this project's test harness also pins pgsql — and a
+  suite that opens a pgsql database is the one that collides with a neighbouring run …
+  Evidence: tests/TenantTestCase.php. Pass --connection=<a pgsql connection>, or --any-driver …
+```
+
+Absence of evidence is never treated as evidence: when the scan finds nothing the command falls back
+to the configured list and *says so* on the way past.
+
+## Check the run finished
+
+Isolating the database doesn't make the run readable. Two failure modes are worth knowing, because
+both look like results:
+
+- A suite that dies on **`memory_limit`** prints its failures so far, emits **no summary line, and
+  exits 0**. The command warns when PHP's limit is under 512M; run large suites with
+  `php -d memory_limit=2G`.
+- A **segfaulted** run stops the same way.
+
+So check for the summary before believing anything. `pest`/`phpunit` print a `Tests:` or `OK (…)`
+line; a JSON reporter prints a final object. The form varies — the presence of *some* terminal
+summary is what you're checking for.
 
 ## The guards
 

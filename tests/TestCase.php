@@ -55,6 +55,19 @@ abstract class TestCase extends Orchestra
 
         $app['config']->set('beam.dev.prefix', 'test_');
         $app['config']->set('beam.dev.env', ['DB_DATABASE']);
+
+        // Scratch SQLite files land here rather than beside the connection's own database, so this
+        // run's files stay inside this run's pid-keyed directory. Without the pin they would go to
+        // the shared project-scoped temp dir the real default resolves to — reachable by a
+        // concurrent session's `--all` sweep, which is the collision this package exists to prevent.
+        $app['config']->set('beam.dev.sqlite_dir', $dir);
+
+        // Harness discovery OFF by default in this package's own suite. It is on in real projects,
+        // and the tests that exercise it point it at a FIXTURE. Left on here it would read
+        // beam-dev's own tests/ — which pins both sqlite and pgsql connections as test data — and
+        // every unrelated test would be answering questions about this file instead of about the
+        // code. The tests that care set this explicitly.
+        $app['config']->set('beam.dev.harness_paths', []);
     }
 
     /**
