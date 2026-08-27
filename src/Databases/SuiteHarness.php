@@ -177,6 +177,17 @@ class SuiteHarness
     }
 
     /**
+     * The directories the scan reads, in order — printed by any error that resolved a path through
+     * them, because "not found" without "looked here" is the least actionable error a tool can emit.
+     *
+     * @return list<string>
+     */
+    public function roots(): array
+    {
+        return $this->roots;
+    }
+
+    /**
      * Resolve a project-relative path against the roots, not against `base_path()`.
      *
      * Same testbench trap as the scan, one surface over: `--init=database/init/extensions.sql` was

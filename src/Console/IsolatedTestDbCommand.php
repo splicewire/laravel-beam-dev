@@ -4,6 +4,7 @@ namespace Splicewire\Beam\Dev\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Splicewire\Beam\Dev\Databases\IsolationGuard;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
 use Splicewire\Beam\Dev\Databases\ServerConnection;
@@ -131,16 +132,40 @@ class IsolatedTestDbCommand extends Command
     }
 
     /**
+     * Resolve the provisioning SQL, and fail on a missing file in terms the caller can act on.
+     *
+     * ⚠️ The obvious version of this error is unreadable, and it took a probe to see why. Laravel
+     * renders `$this->components->error()` through `EnsureRelativePaths`, which strips `base_path()`
+     * off any path in the message — and under testbench `base_path()` is the vendored skeleton, which
+     * is exactly where an unresolved relative path lands. So a message carrying the resolved absolute
+     * path renders as the RELATIVE path the caller typed, and reads as "the tool ignored where I told
+     * it to look" when the tool had in fact looked in two places and said neither. The roots are
+     * named here for that reason: at least one of them is outside `base_path()` and survives the
+     * mutator intact.
+     *
      * @return list<string>
      */
     private function initFiles(SuiteHarness $harness): array
     {
         $files = $this->option('init') ?: config('beam.dev.init', []);
 
-        return array_values(array_map(
+        $resolved = array_values(array_map(
             static fn ($path) => $harness->resolveProjectPath((string) $path, base_path()),
             (array) $files,
         ));
+
+        foreach ((array) $files as $index => $declared) {
+            if (! is_file($resolved[$index])) {
+                throw new RuntimeException(
+                    'Init SQL file ['.((string) $declared).'] was not found. Looked under: '
+                    .implode(', ', $harness->roots()).'. Pass an absolute path if it lives elsewhere. '
+                    .'(Under a package testbench the application base path is the vendored skeleton, '
+                    .'not the repo you are standing in.)'
+                );
+            }
+        }
+
+        return $resolved;
     }
 
     /**
