@@ -104,6 +104,35 @@ class PinnedEnvTest extends TestCase
         $this->assertFalse($databases->exists('test_nothing', 'scratch'));
     }
 
+    /**
+     * An app states its driver in phpunit.xml and its tests mention none. Reading only `tests/` found
+     * nothing at `~/Herd/audiostud` and left the driver guard unable to fire on a root that is
+     * emphatically pgsql — so a `DB_CONNECTION` pin is driver evidence, and the file it came from is
+     * evidence a refusal can cite.
+     */
+    public function test_a_db_connection_pin_counts_as_driver_evidence(): void
+    {
+        $harness = $this->useFixture('pinned-soft');
+
+        $this->assertSame(['pgsql'], $harness->drivers());
+        $this->assertContains('phpunit.xml', $harness->sources());
+
+        // And it fires: the fixture's own suite is pgsql, so a sqlite connection is refused.
+        $this->assertNotNull($harness->refuse('scratch', 'sqlite'));
+    }
+
+    /**
+     * A renamed connection is not a driver. Where a project's `DB_CONNECTION` names something that is
+     * not also a driver name, the pin is ignored rather than guessed at.
+     */
+    public function test_a_connection_name_that_is_not_a_driver_is_not_believed(): void
+    {
+        config()->set('beam.dev.harness_paths', []);
+        $this->app->forgetInstance(SuiteHarness::class);
+
+        $this->assertSame([], $this->app->make(SuiteHarness::class)->drivers());
+    }
+
     public function test_the_pin_parser_reads_force_correctly(): void
     {
         $this->assertTrue($this->useFixture('pinned-forced')->pins()['DB_DATABASE']['force']);

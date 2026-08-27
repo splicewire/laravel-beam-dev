@@ -78,11 +78,42 @@ class SuiteHarness
     /**
      * Drivers the harness is observed to pin.
      *
+     * Two sources, because a project states this in one of two places and never both. A package
+     * testbench builds its connection in PHP, so the driver is a `'driver' => 'pgsql'` in `tests/`.
+     * An app states it as `<env name="DB_CONNECTION" value="pgsql"/>` in phpunit.xml and its tests
+     * mention no driver at all — which is exactly `~/Herd/audiostud`, where reading only `tests/`
+     * found nothing and left the driver guard unable to fire on a root that is emphatically pgsql.
+     *
+     * A `DB_CONNECTION` value is a connection NAME, not a driver, so only values that are also driver
+     * names are believed. In Laravel's stock config they coincide; where a project has renamed them
+     * the pin is ignored rather than guessed at.
+     *
      * @return list<string>
      */
     public function drivers(): array
     {
-        return $this->scan()['drivers'];
+        $drivers = array_merge($this->scan()['drivers'], $this->pinnedDrivers());
+
+        sort($drivers);
+
+        return array_values(array_unique($drivers));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function pinnedDrivers(): array
+    {
+        $known = ['pgsql', 'mysql', 'mariadb', 'sqlite'];
+        $drivers = [];
+
+        foreach ($this->pins() as $name => $pin) {
+            if (str_ends_with($name, 'DB_CONNECTION') && in_array($pin['value'], $known, true)) {
+                $drivers[] = $pin['value'];
+            }
+        }
+
+        return $drivers;
     }
 
     /**
@@ -93,7 +124,19 @@ class SuiteHarness
      */
     public function sources(): array
     {
-        return $this->scan()['sources'];
+        $sources = $this->scan()['sources'];
+
+        // A phpunit config that pinned a driver or a database name is evidence too, and an error
+        // citing evidence must cite the file it actually came from.
+        foreach ($this->pins() as $name => $pin) {
+            if (str_ends_with($name, 'DB_CONNECTION') || str_ends_with($name, 'DB_DATABASE')) {
+                $sources[] = $pin['file'];
+            }
+        }
+
+        sort($sources);
+
+        return array_values(array_unique($sources));
     }
 
     /**
