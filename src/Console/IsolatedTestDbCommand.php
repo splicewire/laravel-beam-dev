@@ -91,7 +91,7 @@ class IsolatedTestDbCommand extends Command
                 ? "Created <info>{$name}</info> on connection <comment>{$connection}</comment>."
                 : "Reusing existing <info>{$name}</info> on connection <comment>{$connection}</comment>.");
 
-            $init = $this->initFiles();
+            $init = $this->initFiles($harness);
 
             if ($init !== []) {
                 $databases->runSqlFiles($name, $connection, $init);
@@ -133,12 +133,12 @@ class IsolatedTestDbCommand extends Command
     /**
      * @return list<string>
      */
-    private function initFiles(): array
+    private function initFiles(SuiteHarness $harness): array
     {
         $files = $this->option('init') ?: config('beam.dev.init', []);
 
         return array_values(array_map(
-            static fn ($path) => str_starts_with((string) $path, '/') ? (string) $path : base_path((string) $path),
+            static fn ($path) => $harness->resolveProjectPath((string) $path, base_path()),
             (array) $files,
         ));
     }

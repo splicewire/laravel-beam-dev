@@ -177,6 +177,34 @@ class SuiteHarness
     }
 
     /**
+     * Resolve a project-relative path against the roots, not against `base_path()`.
+     *
+     * Same testbench trap as the scan, one surface over: `--init=database/init/extensions.sql` was
+     * resolved with `base_path()`, which under `vendor/bin/testbench` is the skeleton inside
+     * `vendor/orchestra/testbench-core/laravel`. The SQL a package's own repo ships is never there,
+     * so the provisioning step could not find a file sitting in plain view of the caller's shell.
+     *
+     * Absolute paths pass through. A relative path that matches nothing falls back to `base_path()`
+     * so the error names a path the caller can reason about rather than silently resolving elsewhere.
+     */
+    public function resolveProjectPath(string $path, string $fallback): string
+    {
+        if (str_starts_with($path, '/')) {
+            return $path;
+        }
+
+        foreach ($this->roots as $root) {
+            $candidate = rtrim($root, '/').'/'.$path;
+
+            if (file_exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return rtrim($fallback, '/').'/'.$path;
+    }
+
+    /**
      * @return array{env: list<string>, drivers: list<string>, sources: list<string>}
      */
     private function scan(): array

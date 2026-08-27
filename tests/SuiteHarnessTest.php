@@ -100,6 +100,27 @@ class SuiteHarnessTest extends TestCase
     }
 
     /**
+     * The same testbench trap, one surface over. `--init=database/init/extensions.sql` used to be
+     * resolved with `base_path()`, which under `vendor/bin/testbench` is the skeleton inside
+     * `vendor/orchestra/testbench-core/laravel` — so provisioning SQL sitting in plain view of the
+     * caller's shell could not be found. Measured in tower on the way to proving the env fix.
+     */
+    public function test_a_project_relative_init_path_resolves_against_the_project_not_the_skeleton(): void
+    {
+        $harness = $this->app->make(SuiteHarness::class);
+
+        $this->assertSame(
+            $this->fixtureRoot().'/database/init/extensions.sql',
+            $harness->resolveProjectPath('database/init/extensions.sql', '/nowhere'),
+        );
+
+        // Absolute passes through, and an unmatched relative path falls back to something the caller
+        // can reason about rather than resolving somewhere surprising.
+        $this->assertSame('/tmp/x.sql', $harness->resolveProjectPath('/tmp/x.sql', '/nowhere'));
+        $this->assertSame('/nowhere/missing.sql', $harness->resolveProjectPath('missing.sql', '/nowhere'));
+    }
+
+    /**
      * Absence of evidence is not evidence: a project with no readable harness falls back to the
      * configured list, and SAYS it is doing that rather than presenting the fallback as a finding.
      */
