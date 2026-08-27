@@ -7,6 +7,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 
 /**
  * Create, list, inspect and drop whole databases, engine-aware.
@@ -72,7 +73,15 @@ class ScratchDatabases
         }
 
         if ($this->isSqlite($connection)) {
-            return @unlink($this->sqlitePath($name, $connection));
+            $path = $this->sqlitePath($name, $connection);
+
+            // Reporting "it did not exist" for a file that exists and would not delete is the same
+            // lie in miniature — the caller believes it was reaped and it is still there.
+            if (! @unlink($path)) {
+                throw new RuntimeException("Failed to delete SQLite database file [{$path}].");
+            }
+
+            return true;
         }
 
         $this->server->for($connection)->statement("DROP DATABASE IF EXISTS {$this->quote($name, $connection)}");
@@ -172,6 +181,54 @@ class ScratchDatabases
     }
 
     /**
+     * Prove the database is there before anything reports that it is.
+     *
+     * `create()` returning true says a statement was issued, not that a database resulted — and on
+     * the SQLite path it can succeed against a directory nothing will ever read. This opens a
+     * connection pointed AT the scratch database and runs a trivial query, which is the only claim
+     * worth printing: a suite can reach it. Cheap, engine-agnostic, and it is what turns a silent
+     * no-op into a loud failure.
+     *
+     * @throws RuntimeException when the database cannot be reached
+     */
+    public function assertReachable(string $name, string $connection): void
+    {
+        $derived = null;
+
+        try {
+            $target = $this->targetConnection($name, $connection);
+            $derived = $target->getName();
+            $target->select('select 1');
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                "Database [{$name}] on connection [{$connection}] is not reachable after creating it: "
+                .$e->getMessage(),
+                previous: $e,
+            );
+        } finally {
+            // Don't leave a handle open on a database the caller is about to hand to a test run (or,
+            // on the SQLite path, to drop).
+            if ($derived !== null) {
+                app('db')->purge($derived);
+            }
+        }
+    }
+
+    /**
+     * The value an env var must carry for a run to land on $name.
+     *
+     * On a server engine that is the name. On SQLite it is a PATH, and emitting the bare name there
+     * silently points the run at a file that does not exist — the same no-isolation failure one
+     * layer down from the one this class guards against.
+     */
+    public function targetValue(string $name, string $connection): string
+    {
+        return $this->isSqlite($connection)
+            ? $this->sqlitePath($name, $connection)
+            : $name;
+    }
+
+    /**
      * A connection pointed AT the scratch database itself, for provisioning inside it.
      */
     public function targetConnection(string $name, string $connection): Connection
@@ -179,7 +236,9 @@ class ScratchDatabases
         $config = (array) $this->config->get("database.connections.{$connection}");
         $derived = "beam-dev-target:{$connection}:{$name}";
 
-        $this->config->set("database.connections.{$derived}", array_merge($config, ['database' => $name]));
+        $this->config->set("database.connections.{$derived}", array_merge($config, [
+            'database' => $this->targetValue($name, $connection),
+        ]));
 
         app('db')->purge($derived);
 

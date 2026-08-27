@@ -13,6 +13,28 @@ to install in any Laravel project, and a dev tool that drags a framework in behi
 installed. If something here starts wanting a beam class, that is a sign the feature belongs in a
 beam package instead.
 
+## Report what you verified, never what you issued
+
+A companion rule to the one below, and the repair of a measured defect (2026-08-27): the command
+printed `Created test_k2uauqv7` for a database that never existed, because it reported off
+`create()`'s return value. Under a package testbench harness `database.default` is in-memory SQLite,
+so the create path touched a file in the process's working directory and the emitted env pointed at
+nothing — a session that followed the fleet instruction to isolate got a success message and no
+isolation, then blamed the interference on its own change.
+
+Two things hold as a result, and both are cheap enough that any new path should keep them:
+
+- `Databases\IsolationGuard::refuse()` is the single place deciding whether a CONNECTION can host a
+  scratch database at all — sibling to `DropGuard`, same reason-string shape, asked before any work.
+  It is deliberately fatal: a check the caller could have gotten right without knowing the host may
+  throw, and "you pointed an isolation tool at `:memory:`" is exactly that.
+- `ScratchDatabases::assertReachable()` runs before anything prints `Created`. A statement issuing
+  successfully and a suite being able to connect are different claims; only the second is worth
+  saying out loud.
+
+And say what was *not* done: `init` provisioning is opt-in, so with none configured the command
+states the database is bare rather than letting "Created" imply extensions.
+
 ## This package deletes databases
 
 That constraint outranks every other consideration in the repo.

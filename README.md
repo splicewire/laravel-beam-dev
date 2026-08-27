@@ -131,6 +131,31 @@ variable here too.
 `citext`, `vector` or a role dies with an error about the extension rather than about the missing
 setup step. Point this at the SQL your schema assumes has already run.
 
+⚠️ **`init` is empty by default and this package will not guess it.** With nothing configured the
+command creates a *bare* database and says so (`No provisioning SQL configured — the database is
+bare.`). It does not install extensions on your behalf, and "Created" has never meant "provisioned".
+If you arrived here because a scratch database lacked `vector` / `uuid-ossp` / `pg_trgm`, the step
+did not fail — it was never configured to run.
+
+## Honesty about what it did
+
+The command reports work it has *verified*, not work it *issued*. After creating, it opens a
+connection pointed at the new database and runs a trivial query; only then does it print `Created`.
+And it refuses a connection it cannot isolate on at all:
+
+```
+php artisan splicewire:beam:dev:isolated-test-db     # database.default is sqlite :memory:
+
+  ERROR  Connection [testing] is an in-memory SQLite database (`:memory:`). There is nothing to
+  isolate … Pass a server-backed connection instead: --connection=pgsql (configured here: pgsql, mysql).
+```
+
+That case is why this exists. Under a package testbench harness `database.default` is an in-memory
+SQLite connection, and the command used to report `Created test_xxxxxxxx`, touch a stray
+`test_xxxxxxxx.sqlite` in the process's working directory (`dirname(':memory:')` is `.`), and emit an
+env assignment pointing at nothing — so a session that asked for isolation got a success message and
+none. A refusal you can act on beats a success you cannot.
+
 ## The guards
 
 `drop-db` destroys whole databases, so every drop goes through one guard with four rules:
@@ -153,8 +178,11 @@ rejected outright rather than escaped.
 
 ## Engines
 
-PostgreSQL, MySQL/MariaDB, and SQLite (where a scratch database is a file, and `--init` doesn't
-apply).
+PostgreSQL, MySQL/MariaDB, and SQLite (where a scratch database is a file, the emitted env carries
+that file's **path** rather than a bare name, and `--init` doesn't apply).
+
+In-memory SQLite is refused outright: it lives for one process, no other run can reach it, and there
+is nothing there to isolate.
 
 ## Beyond testing
 

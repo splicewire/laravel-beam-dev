@@ -24,12 +24,22 @@ class CommandsTest extends TestCase
         return Artisan::output();
     }
 
+    /**
+     * What a SQLite scratch database of this name is called on disk — the value the emitted env has
+     * to carry for a run to land on it.
+     */
+    private function pathFor(string $name): string
+    {
+        return sys_get_temp_dir()."/beam-dev-tests/{$name}.sqlite";
+    }
+
     public function test_it_creates_a_scratch_database_and_prints_the_env(): void
     {
         $output = $this->runCommand('splicewire:beam:dev:isolated-test-db', ['--slug' => 'abc123']);
 
         $this->assertStringContainsString('Created test_abc123', $output);
-        $this->assertStringContainsString('DB_DATABASE=test_abc123', $output);
+        // On SQLite the env value is the PATH to the file; a bare name would point at nothing.
+        $this->assertStringContainsString('DB_DATABASE='.$this->pathFor('test_abc123'), $output);
         $this->assertStringContainsString('drop-db test_abc123', $output);
 
         $this->assertTrue($this->app->make(ScratchDatabases::class)->exists('test_abc123', 'scratch'));
@@ -59,8 +69,8 @@ class CommandsTest extends TestCase
 
         $output = $this->runCommand('splicewire:beam:dev:isolated-test-db', ['--slug' => 'pair']);
 
-        $this->assertStringContainsString('DB_DATABASE=test_pair', $output);
-        $this->assertStringContainsString('TEST_DB_DATABASE=test_pair', $output);
+        $this->assertStringContainsString('DB_DATABASE='.$this->pathFor('test_pair'), $output);
+        $this->assertStringContainsString('TEST_DB_DATABASE='.$this->pathFor('test_pair'), $output);
     }
 
     public function test_extra_vars_are_emitted_alongside_the_configured_ones(): void
@@ -70,8 +80,8 @@ class CommandsTest extends TestCase
             '--var' => ['SECONDARY_DB'],
         ]);
 
-        $this->assertStringContainsString('DB_DATABASE=test_extra', $output);
-        $this->assertStringContainsString('SECONDARY_DB=test_extra', $output);
+        $this->assertStringContainsString('DB_DATABASE='.$this->pathFor('test_extra'), $output);
+        $this->assertStringContainsString('SECONDARY_DB='.$this->pathFor('test_extra'), $output);
     }
 
     public function test_it_drops_a_named_database(): void

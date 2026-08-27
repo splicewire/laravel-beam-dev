@@ -4,6 +4,7 @@ namespace Splicewire\Beam\Dev\Console;
 
 use Illuminate\Console\Command;
 use Splicewire\Beam\Dev\Databases\DropGuard;
+use Splicewire\Beam\Dev\Databases\IsolationGuard;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
 use Throwable;
 
@@ -31,10 +32,21 @@ class DropDbCommand extends Command
 
     protected $description = 'Drop scratch databases, one or many, with guards';
 
-    public function handle(ScratchDatabases $databases, DropGuard $guard): int
+    public function handle(ScratchDatabases $databases, DropGuard $guard, IsolationGuard $isolation): int
     {
         $connection = (string) ($this->option('connection') ?: config('database.default'));
         $prefix = (string) config('beam.dev.prefix', 'test_');
+
+        // A precondition of the CONNECTION, checked before any per-database policy: an in-memory
+        // SQLite connection holds no scratch databases, and its file glob resolves against the
+        // process's working directory — so a sweep there would delete prefix-matching files out of
+        // whatever directory you were standing in. Per-database drop policy is still DropGuard's
+        // alone; this only decides whether there is a server to talk to at all.
+        if ($reason = $isolation->refuse($connection)) {
+            $this->components->error($reason);
+
+            return self::FAILURE;
+        }
 
         try {
             $targets = $this->targets($databases, $connection, $prefix);
