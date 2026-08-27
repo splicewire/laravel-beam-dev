@@ -76,6 +76,23 @@ class IsolatedTestDbCommand extends Command
             return self::FAILURE;
         }
 
+        // Both of these are answered BEFORE anything is created, because both of their answers are
+        // "do not create anything". Manufacturing a database and then explaining that the suite will
+        // not use it leaves a real database on a real server for someone else to wonder about.
+        if ($reason = $harness->alreadyIsolated()) {
+            $this->components->info($reason);
+
+            return self::SUCCESS;
+        }
+
+        $vars = $harness->targetEnvVars(array_map('strval', (array) $this->option('var')));
+
+        if ($reason = $harness->refusePinnedEnv($vars, $databases->targetValue($name, $connection))) {
+            $this->components->error($reason);
+
+            return self::FAILURE;
+        }
+
         try {
             if ($this->option('drop-existing') && $databases->exists($name, $connection)) {
                 $databases->drop($name, $connection);
@@ -110,6 +127,7 @@ class IsolatedTestDbCommand extends Command
 
         $this->emitEnv(
             $harness,
+            $vars,
             $databases->targetValue($name, $connection),
             $name,
             $connection,
@@ -188,12 +206,12 @@ class IsolatedTestDbCommand extends Command
      */
     private function emitEnv(
         SuiteHarness $harness,
+        array $vars,
         string $value,
         string $name,
         string $connection,
         ?string $replacing,
     ): void {
-        $vars = $harness->targetEnvVars(array_map('strval', (array) $this->option('var')));
         $assignments = implode(' ', array_map(static fn ($var) => "{$var}={$value}", $vars));
 
         $this->newLine();
@@ -207,6 +225,8 @@ class IsolatedTestDbCommand extends Command
             $this->line("  (those override <comment>{$replacing}</comment> for this run only — nothing on disk changes)");
         }
 
+        $this->reportOverriddenPins($harness, $vars);
+        $this->explainParallelDerivation($name);
         $this->warnAboutMemoryLimit();
 
         $this->newLine();
@@ -243,6 +263,48 @@ class IsolatedTestDbCommand extends Command
             .'(in '.implode(', ', $harness->sources()).').');
         $this->line('Add to <comment>config(\'beam.dev.env\')</comment> to declare rather than rediscover.');
         $this->newLine();
+    }
+
+    /**
+     * Name the phpunit pins that were looked at and do NOT stand in the way.
+     *
+     * A caller who opens phpunit.xml, finds their variable hardcoded, and concludes the override
+     * cannot work is reasoning correctly from incomplete information — and that is exactly the
+     * inference that turned a healthy isolated run at `~/Herd/audiostud` into a reported defect.
+     * PHPUnit only overwrites a shell value when the pin carries `force="true"`.
+     */
+    private function reportOverriddenPins(SuiteHarness $harness, array $vars): void
+    {
+        $pins = $harness->overriddenPins($vars);
+
+        if ($pins === []) {
+            return;
+        }
+
+        $this->newLine();
+        $this->line('  (your phpunit config pins '.implode(', ', $pins).' — without <comment>force="true"</comment> '
+            .'PHPUnit keeps the shell value, so the override above still wins)');
+    }
+
+    /**
+     * Say where a parallel run's data will actually be, because it is not in the database just named.
+     *
+     * `--parallel` derives one database per worker from the base name and migrates into those; the
+     * base is left EMPTY. That empty base is the signature of a parallel run that worked, and it has
+     * already been read once as proof that isolation failed — the databases were there the whole
+     * time, one name over. An instrument that looks in the wrong place reports failure just as
+     * confidently as one that reports success.
+     *
+     * Worth knowing too: the derivation is `<base>_test_<token>`, so the per-worker names are only as
+     * unique as the base. Two concurrent runs sharing a base name share every worker database with
+     * each other — which is the argument for a session-scoped base, i.e. for this command.
+     */
+    private function explainParallelDerivation(string $name): void
+    {
+        $this->newLine();
+        $this->line("  (running <comment>--parallel</comment>? the workers use <info>{$name}_test_1</info>, "
+            ."<info>{$name}_test_2</info>, … and <info>{$name}</info> itself stays EMPTY. An empty base "
+            .'database is what a working parallel run looks like, not a failed override.)');
     }
 
     /**

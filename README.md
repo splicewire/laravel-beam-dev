@@ -205,6 +205,65 @@ pgsql and it stops, rather than handing back an env line that would isolate noth
 Absence of evidence is never treated as evidence: when the scan finds nothing the command falls back
 to the configured list and *says so* on the way past.
 
+## Three outcomes, and only one of them makes a database
+
+The command answers one question — *will the env line I am about to print actually reach the suite?* —
+and there are three honest answers. Two of them create nothing.
+
+**Isolated.** The normal path: a scratch database, proved reachable, and the env that targets it.
+
+**Already isolated — nothing to do.** Your phpunit config pins an in-memory database. That suite is
+isolated by construction: it lives and dies inside one process and no concurrent run can reach it. A
+scratch database here would be one nothing ever opens, so none is made.
+
+**Refused.** Something would swallow the override. The connection can't hold a scratch database, the
+driver isn't one your harness opens, or — the case below — your phpunit config pins the variable with
+`force="true"`. All three checks run *before* `CREATE DATABASE`, so a refusal never leaves a real
+database on a real server for someone else to wonder about.
+
+## Pinned variables in phpunit.xml
+
+A hardcoded `<env name="DB_DATABASE" value="…"/>` may or may not defeat a shell override, and the rule
+is exact rather than a judgement call. It is one line of PHPUnit, `PhpHandler::handleEnvVariables()`:
+
+```php
+if ($force || getenv($name) === false) { putenv("{$name}={$value}"); }
+```
+
+So a pin **without** `force` cannot touch a value you exported, and a pin **with** `force="true"`
+discards it unconditionally. Measured on PHPUnit 12.5.33 with both variables exported: the unforced
+pin read back `FROM_SHELL`, the forced pin read back `PINNED_IN_XML`.
+
+The command applies exactly that rule. A forced pin is a refusal naming the file, the value and the
+three repairs. An unforced pin is reported and stepped over:
+
+```
+  (your phpunit config pins DB_DATABASE=audiostud_testing in phpunit.xml — without force="true"
+   PHPUnit keeps the shell value, so the override above still wins)
+```
+
+That line exists because the opposite inference is so easy to make. Open `phpunit.xml`, find your
+variable hardcoded, conclude the override cannot possibly work — correct reasoning from incomplete
+information, and it has already been drawn once against a run that was working fine.
+
+## An empty base database is what a working parallel run looks like
+
+`--parallel` derives one database per worker from the base name — `<base>_test_1`, `_test_2`, … — and
+migrates into *those*. The base is left **empty**. So checking the database you just created, finding
+no tables, and concluding the override was ignored gets it exactly backwards: the data is one name
+over. The command says so up front:
+
+```
+  (running --parallel? the workers use test_ab12cd34_test_1, test_ab12cd34_test_2, … and
+   test_ab12cd34 itself stays EMPTY. An empty base database is what a working parallel run looks
+   like, not a failed override.)
+```
+
+Worth knowing: the derivation is `<base>_test_<token>`, so the worker names are only as unique as the
+base. Two concurrent runs sharing a base name share **every** worker database with each other — which
+is the argument for a session-scoped base, i.e. for this command. `drop-db <base>` reaps the children
+with the parent.
+
 ## Check the run finished
 
 Isolating the database doesn't make the run readable. Two failure modes are worth knowing, because

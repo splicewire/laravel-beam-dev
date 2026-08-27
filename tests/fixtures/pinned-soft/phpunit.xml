@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Reduced from ~/Herd/audiostud/phpunit.xml. The pin has NO force attribute, so PHPUnit keeps a
+     shell value: measured on 12.5.33, an unforced pin yielded FROM_SHELL. -->
+<phpunit bootstrap="vendor/autoload.php">
+    <php>
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_DATABASE" value="audiostud_testing"/>
+    </php>
+</phpunit>

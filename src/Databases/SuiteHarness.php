@@ -54,6 +54,9 @@ class SuiteHarness
     /** @var array{env: list<string>, drivers: list<string>, sources: list<string>}|null */
     private ?array $scan = null;
 
+    /** @var array<string, array{value: string, force: bool, file: string}>|null */
+    private ?array $pins = null;
+
     /**
      * @param  list<string>  $roots  directories that may hold the harness, most specific first
      */
@@ -174,6 +177,147 @@ class SuiteHarness
         $declared = array_map('strval', (array) $this->config->get('beam.dev.env', ['DB_DATABASE']));
 
         return array_values(array_diff($this->envVars(), $declared));
+    }
+
+    /**
+     * Every `<env>` / `<server>` pin in the project's phpunit config, by name.
+     *
+     * A pin is not the same kind of fact as anything else this class reads, and the difference is
+     * exact rather than heuristic. `PhpHandler::handleEnvVariables()` in PHPUnit is one line:
+     *
+     *     if ($force || getenv($name) === false) { putenv("{$name}={$value}"); }
+     *
+     * So **an unforced pin cannot defeat a shell override, and a forced one always does.** Measured
+     * on PHPUnit 12.5.33 rather than read: with both vars exported in the shell, an unforced pin
+     * yielded `FROM_SHELL` and `force="true"` yielded `PINNED_IN_XML`.
+     *
+     * That distinction is worth the parser. Treating every pin as fatal would refuse at `~/Herd/audiostud`,
+     * whose `phpunit.xml` pins `DB_DATABASE=audiostud_testing` without `force` — and where a shell
+     * override demonstrably does reach the suite.
+     *
+     * @return array<string, array{value: string, force: bool, file: string}>
+     */
+    public function pins(): array
+    {
+        if ($this->pins !== null) {
+            return $this->pins;
+        }
+
+        $pins = [];
+
+        foreach ($this->roots as $root) {
+            foreach (['phpunit.xml', 'phpunit.xml.dist'] as $name) {
+                $file = rtrim($root, '/').'/'.$name;
+
+                if (! is_file($file)) {
+                    continue;
+                }
+
+                $xml = @simplexml_load_file($file);
+
+                if ($xml === false) {
+                    continue;
+                }
+
+                foreach (['env', 'server'] as $element) {
+                    foreach ($xml->xpath('//php/'.$element) ?: [] as $node) {
+                        $key = (string) ($node['name'] ?? '');
+
+                        if ($key === '' || isset($pins[$key])) {
+                            continue;
+                        }
+
+                        $pins[$key] = [
+                            'value' => (string) ($node['value'] ?? ''),
+                            'force' => filter_var((string) ($node['force'] ?? 'false'), FILTER_VALIDATE_BOOL),
+                            'file' => $this->relative($file),
+                        ];
+                    }
+                }
+            }
+        }
+
+        return $this->pins = $pins;
+    }
+
+    /**
+     * The suite already gives every run its own database, so there is nothing for this tool to make.
+     *
+     * The third outcome, alongside "isolated" and "refused". A suite pinned to in-memory SQLite is
+     * isolated by construction — the database lives and dies inside one process and no concurrent run
+     * can reach it. Creating a scratch database for it would be a database nobody opens, which is the
+     * same class of uselessness this command exists to stop, just with a friendlier face on it.
+     *
+     * @return string|null the reason there is nothing to do, or null when there is
+     */
+    public function alreadyIsolated(): ?string
+    {
+        foreach ($this->pins() as $name => $pin) {
+            if (! str_ends_with($name, 'DB_DATABASE') || ! str_contains($pin['value'], ':memory:')) {
+                continue;
+            }
+
+            return "{$pin['file']} pins {$name}={$pin['value']} — an in-memory database, which lives and "
+                .'dies inside one process. This suite is already isolated by construction: no concurrent '
+                .'run can reach its database, and a scratch database created here would be one nothing '
+                .'opens. Nothing to do.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Refuse when the phpunit config will overwrite the very variables we are about to print.
+     *
+     * The narrow, provable case: `force="true"`. Printing an env line that PHPUnit is guaranteed to
+     * discard is the worst outcome this command has — the caller runs it, the suite lands on the
+     * shared database, and nothing anywhere reports a problem.
+     *
+     * @param  list<string>  $vars
+     */
+    public function refusePinnedEnv(array $vars, string $value): ?string
+    {
+        foreach ($vars as $var) {
+            $pin = $this->pins()[$var] ?? null;
+
+            if ($pin === null || ! $pin['force'] || $pin['value'] === $value) {
+                continue;
+            }
+
+            return "{$pin['file']} pins {$var}={$pin['value']} with force=\"true\", and PHPUnit's "
+                .'force branch overwrites the shell value unconditionally. Anything printed here for '
+                ."[{$var}] would be discarded before the first test ran, and the suite would land on "
+                .'the shared database with nothing reporting it. Repair the pin rather than working '
+                .'around it: drop force="true" so a shell override wins, point the pin at the scratch '
+                .'database, or run the suite with --configuration=<a copy without the pin>.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Pins that do NOT stand in the way — reported so the caller knows they were looked at.
+     *
+     * Without this, a caller who opens phpunit.xml, sees their variable hardcoded, and concludes the
+     * override cannot possibly work is reasoning correctly from incomplete information. Naming the
+     * unforced pin and saying it loses is cheaper than the hour it costs them to find out.
+     *
+     * @param  list<string>  $vars
+     * @return list<string>
+     */
+    public function overriddenPins(array $vars): array
+    {
+        $found = [];
+
+        foreach ($vars as $var) {
+            $pin = $this->pins()[$var] ?? null;
+
+            if ($pin !== null && ! $pin['force']) {
+                $found[] = "{$var}={$pin['value']} in {$pin['file']}";
+            }
+        }
+
+        return $found;
     }
 
     /**
