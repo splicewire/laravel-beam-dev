@@ -1,5 +1,4 @@
 /vendor/
-composer.lock
 composer.local.json
 .phpunit.result.cache
 CLAUDE.md
