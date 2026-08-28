@@ -1,7 +1,17 @@
 {
     "name": "splicewire/laravel-beam-dev",
-    "description": "Session-scoped scratch databases for Laravel development and testing. Create an isolated database per test run so concurrent suites stop clobbering each other, provision it from SQL before the first migration, and reap it afterwards behind guards that refuse production, the app's own database, and any database another run is still connected to.",
-    "keywords": ["laravel", "testing", "database", "postgres", "mysql", "sqlite", "developer-tools", "splicewire", "beam"],
+    "description": "Developer tooling for the Beam family, require-dev and never shipped. Session-scoped scratch databases so concurrent suites stop clobbering each other \u2014 created, provisioned from SQL before the first migration, and reaped behind guards that refuse production, the app's own database, and any database another run is still connected to. Plus the wire-name reader that proves a DTO property rename moved no published key.",
+    "keywords": [
+        "laravel",
+        "testing",
+        "database",
+        "postgres",
+        "mysql",
+        "sqlite",
+        "developer-tools",
+        "splicewire",
+        "beam"
+    ],
     "license": "MIT",
     "authors": [
         {
