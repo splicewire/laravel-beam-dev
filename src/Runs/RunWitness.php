@@ -17,6 +17,14 @@ namespace Splicewire\Beam\Dev\Runs;
  * | the runner piped through `head` — `SIGPIPE` tears the run down | **0** |
  * | a paratest worker segfaulting under `--parallel` | 1 (measured 3/3) |
  * | the `artisan test` wrapper killed, leaving an orphaned `pest` child | varies |
+ * | a native-extension crash — at this estate's flagship, xdebug in `debug` mode segfaults two files | 1 |
+ *
+ * ⚠️ The first and last of those are **the same question wearing two faces: which PHP is the runner
+ * actually running under?** A bare `vendor/bin/pest` path follows its shebang to the system interpreter
+ * (no xdebug, and whatever `memory_limit` that php.ini sets); `artisan test` hands the runner its own
+ * `PHP_BINARY`. Measured 2026-08-29: the first dies on memory, the second segfaults, and each fault's
+ * obvious fix walks you into the other. That is why this class reports the condition and never tries to
+ * set a limit or an extension mode.
  *
  * So **neither the exit code alone nor the failure list alone tells you the suite finished.** The two
  * exit-0 causes defeat any automated gate; all four defeat a human reading a log. The one thing every
@@ -170,7 +178,9 @@ class RunWitness
                 .'complete result. Known causes: PHP dying on memory_limit mid-suite (exits 0); the '
                 .'runner piped through `head`, whose SIGPIPE tears the run down (exits 0); a paratest '
                 .'worker segfaulting under --parallel (exits 1); an orphaned `pest` child after the '
-                .'`artisan test` wrapper was killed. Re-run with the whole output redirected to a file.',
+                .'`artisan test` wrapper was killed; a native-extension crash such as xdebug in `debug` '
+                .'mode. Re-run with the whole output redirected to a file — and check WHICH php ran it, '
+                .'since a bare vendor/bin path and `artisan test` do not use the same interpreter.',
             self::DISAGREES => 'THE SUMMARY CONTRADICTS THE EXIT CODE — it reports '
                 .$this->failureCount().' failure(s)/error(s) and the process exited '.$this->exitCode
                 .'. One of the two is lying; trust neither until you know which.',
