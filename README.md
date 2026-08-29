@@ -264,19 +264,41 @@ base. Two concurrent runs sharing a base name share **every** worker database wi
 is the argument for a session-scoped base, i.e. for this command. `drop-db <base>` reaps the children
 with the parent.
 
-## Check the run finished
+## Check the run finished — `witness-run`
 
-Isolating the database doesn't make the run readable. Two failure modes are worth knowing, because
-both look like results:
+Isolating the database doesn't make the run readable. A suite can stop partway, print the failures it
+had so far, and leave output that reads exactly like a result. Four causes are on record, and they do
+**not** share an exit code:
 
-- A suite that dies on **`memory_limit`** prints its failures so far, emits **no summary line, and
-  exits 0**. The command warns when PHP's limit is under 512M; run large suites with
-  `php -d memory_limit=2G`.
-- A **segfaulted** run stops the same way.
+| cause | exit |
+| --- | --- |
+| PHP dying on `memory_limit` mid-suite | **0** |
+| the runner piped through `head` — `SIGPIPE` tears the run down | **0** |
+| a paratest worker segfaulting under `--parallel` | 1 |
+| the `artisan test` wrapper killed, leaving an orphaned `pest` child | varies |
 
-So check for the summary before believing anything. `pest`/`phpunit` print a `Tests:` or `OK (…)`
-line; a JSON reporter prints a final object. The form varies — the presence of *some* terminal
-summary is what you're checking for.
+So neither the exit code nor the failure list tells you the suite finished. The one thing every
+finished run emits is a **summary line**, and `witness-run` is the check:
+
+```sh
+# run it, and refuse to report a pass for a run that did not finish
+php artisan splicewire:beam:dev:witness-run -- php -d memory_limit=2G vendor/bin/pest
+
+# or witness a log you already have (a CI step keeping its own invocation)
+php artisan splicewire:beam:dev:witness-run --assert=build/test.log --exit-code=$?
+```
+
+Three outcomes. **finished** returns the runner's own exit code unchanged — the command adds nothing
+to a run that behaved. **truncated** (no summary) exits 1 whatever the runner exited on, naming the
+four causes. **disagrees** (a summary that contradicts the exit code) exits 1 too; nothing else in
+this estate checks that direction.
+
+It never pipes the runner through `head`, `tail` or `grep`, and it reads the exit code off the
+process rather than off a pipeline — one of the four causes *is* that pipeline, and reading `$?`
+after `| tail` is how a crash gets written down as exit 0.
+
+`isolated-test-db` still warns when PHP's limit is under 512M, before the run; this is the check
+after it.
 
 ## The guards
 
