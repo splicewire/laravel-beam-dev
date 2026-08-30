@@ -145,4 +145,41 @@ class RunWitnessTest extends BaseTestCase
         // here would be inventing one out of a missing number.
         $this->assertSame(RunWitness::FINISHED, (new RunWitness("OK (13 tests, 30 assertions)\n", 0))->verdict());
     }
+
+    /**
+     * ⚠️ The witness REFUSED A GREEN RUN at 13 of the estate's ~21 Herd roots.
+     *
+     * `laravel/pao` replaces the human summary with `json_encode($result)` on STDOUT, so a complete,
+     * passing run emits neither `Tests:` nor `OK (` — and this class reported TRUNCATED, which is a false
+     * negative in the one instrument whose job is telling a real result from a fake one. It survived
+     * because the witness was built and proven at `splicewire-app`, which is NOT one of the 13.
+     */
+    public function test_it_accepts_the_pao_json_summary_as_a_finished_run(): void
+    {
+        $green = '{"tool":"pest","result":"passed","tests":20,"passed":20}'."\n";
+
+        $this->assertSame(RunWitness::FINISHED, (new RunWitness($green, 0))->verdict());
+    }
+
+    public function test_the_pao_result_field_still_carries_the_exit_code_disagreement(): void
+    {
+        // pao carries no counts to add up, so the verdict IS the `result` field. Reading it keeps the
+        // check this class exists for: a green summary under a non-zero exit, and a failed summary under
+        // a zero exit, are both disagreements.
+        $green = '{"tool":"pest","result":"passed","tests":20,"passed":20}'."\n";
+        $red = '{"tool":"pest","result":"failed","tests":20,"passed":18}'."\n";
+
+        $this->assertSame(RunWitness::DISAGREES, (new RunWitness($green, 1))->verdict());
+        $this->assertSame(RunWitness::DISAGREES, (new RunWitness($red, 0))->verdict());
+        $this->assertSame(RunWitness::FINISHED, (new RunWitness($red, 1))->verdict());
+    }
+
+    public function test_prose_quoting_the_pao_shape_cannot_forge_a_summary(): void
+    {
+        // Anchored to a line start, like every other shape, so a failure message that happens to quote
+        // the JSON does not manufacture a completion.
+        $quoted = 'FAILED: expected {"tool":"pest","result":"passed"} but the run died'."\n";
+
+        $this->assertSame(RunWitness::TRUNCATED, (new RunWitness($quoted, 1))->verdict());
+    }
 }

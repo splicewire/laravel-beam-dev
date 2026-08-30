@@ -64,6 +64,15 @@ class RunWitness
      * conflating "selected nothing" with "died partway" is the same category error this class exists to
      * prevent — one is an over-narrow filter, the other is a broken harness.
      *
+     * ⚠️ **The fifth shape is JSON, and without it this class REFUSED A GREEN RUN.** `laravel/pao`
+     * (`src/Autoload.php:70`) replaces the human summary with `json_encode($result)` on STDOUT, so a
+     * complete, passing run emits neither `Tests:` nor `OK (` and was reported TRUNCATED — a false
+     * negative in the one instrument whose entire job is telling a real result from a fake one.
+     * Measured 2026-08-29: **pao resolves in 13 of ~21 `~/Herd` roots**, and `splicewire-app` is not one
+     * of them, which is exactly why this survived — the witness was built and proven at a root where it
+     * works. Anchored to a line start like the rest, so a failure message quoting the JSON cannot forge
+     * one.
+     *
      * @var list<string>
      */
     public const SUMMARIES = [
@@ -72,6 +81,7 @@ class RunWitness
         '/^OK, but /m',                 // phpunit, green with incomplete/skipped/risky
         '/^No tests executed!/m',       // phpunit, an empty selection — finished, just empty
         '/^\s*Tests:\s+No tests/m',     // pest, an empty selection
+        '/^\{"tool":"[a-z0-9_-]+","result":"[a-z]+"/m', // laravel/pao, which REPLACES the human summary
     ];
 
     /**
@@ -152,6 +162,13 @@ class RunWitness
      */
     public function failureCount(): ?int
     {
+        // The pao dialect carries no counts to add up — its verdict is the `result` field itself. Read it
+        // FIRST, because a pao run has no `Tests:` line at all and would otherwise fall through to
+        // `null`, which silently skips the exit-code disagreement check on 13 of the estate's roots.
+        if (preg_match('/^\{"tool":"[a-z0-9_-]+","result":"([a-z]+)"/m', $this->output, $pao) === 1) {
+            return $pao[1] === 'passed' ? 0 : 1;
+        }
+
         if (preg_match('/^\s*Tests:\s+.*$/m', $this->output, $match) !== 1) {
             return null;
         }
