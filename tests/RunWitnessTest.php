@@ -182,4 +182,51 @@ class RunWitnessTest extends BaseTestCase
 
         $this->assertSame(RunWitness::TRUNCATED, (new RunWitness($quoted, 1))->verdict());
     }
+
+    /**
+     * ⚠️ **The SEVENTH shape is the sixth one wearing colour, and it made this class refuse a green run
+     * for the third time.** Captured verbatim 2026-08-30 from `splicewire/laravel-beam-ux` — 243 tests,
+     * 1 skipped, exit 0, a complete and passing run. `phpunit.xml` carries `colors="true"`, which
+     * colourizes even when STDOUT is redirected to a file, so every summary line begins with an SGR
+     * escape rather than with `O` or `T`. Every pattern in {@see RunWitness::SUMMARIES} is anchored to a
+     * line start — deliberately, so a failure message quoting `Tests:` cannot forge one — and an escape
+     * sequence at the line start defeats all six at once.
+     *
+     * **68 of this estate's package roots force `colors="true"`**, so this was not an edge case; it was
+     * the majority posture for phpunit repos. Same lesson as the pao shape above, one turn of the screw
+     * further: the witness was proven against captured output that happened to be uncoloured.
+     */
+    public function test_it_accepts_a_colourized_phpunit_summary_which_defeated_every_anchored_pattern(): void
+    {
+        $captured = "\e[30;42mOK, but some tests were skipped!\e[0m\n"
+            ."\e[30;42mTests: 243\e[0m\e[30;42m, Assertions: 731\e[0m\e[30;42m, Skipped: 1\e[0m\e[30;42m.\e[0m\n";
+
+        $witness = new RunWitness($captured, 0);
+
+        $this->assertTrue($witness->finished());
+        $this->assertSame(RunWitness::FINISHED, $witness->verdict());
+        // Skipped is not failed: a `Tests:` line naming no failure clause is a positive statement.
+        $this->assertSame(0, $witness->failureCount());
+    }
+
+    public function test_it_accepts_a_colourized_pest_summary_too(): void
+    {
+        $witness = new RunWitness("  \e[2mTests:\e[22m    \e[32m415 passed\e[39m (1361 assertions)\n", 0);
+
+        $this->assertTrue($witness->finished());
+    }
+
+    /**
+     * Stripping colour must not cost the forgery-resistance the anchoring buys. A failure message that
+     * quotes a summary shape mid-line is still not a summary, coloured or not.
+     */
+    public function test_stripping_colour_does_not_let_a_mid_line_quote_forge_a_summary(): void
+    {
+        $forged = "\e[31mFailed asserting that the output contains OK (12 tests, 3 assertions)\e[0m\n";
+
+        $witness = new RunWitness($forged, 0);
+
+        $this->assertFalse($witness->finished());
+        $this->assertSame(RunWitness::TRUNCATED, $witness->verdict());
+    }
 }

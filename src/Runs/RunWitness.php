@@ -47,6 +47,9 @@ namespace Splicewire\Beam\Dev\Runs;
  */
 class RunWitness
 {
+    /** Memoised {@see plain()}; the output can be a large suite log and every check re-reads it. */
+    private ?string $plain = null;
+
     /** The run finished and its summary agrees with its exit code. */
     public const FINISHED = 'finished';
 
@@ -72,6 +75,13 @@ class RunWitness
      * of them, which is exactly why this survived — the witness was built and proven at a root where it
      * works. Anchored to a line start like the rest, so a failure message quoting the JSON cannot forge
      * one.
+     *
+     * ⚠️ **The escapes get stripped before any of these run, and without that they ALL failed at once.**
+     * `colors="true"` in `phpunit.xml` colourizes even when STDOUT is a file, so a green summary arrives
+     * as `\e[30;42mOK, but some tests were skipped!\e[0m` — an SGR escape where the anchor expects `O`.
+     * **68 package roots in this estate force it.** The anchoring is kept (it is what stops a failure
+     * message quoting `Tests:` from forging a summary); it is applied to {@see plain()} instead of the
+     * raw output. Third time this class has refused a green run for a dialect it had not been shown.
      *
      * @var list<string>
      */
@@ -111,6 +121,16 @@ class RunWitness
     ) {}
 
     /** One of {@see FINISHED} / {@see TRUNCATED} / {@see DISAGREES}. */
+    /**
+     * The output with ANSI escape sequences removed, so a line-anchored pattern sees the line's first
+     * real character. Full CSI, not only SGR: a runner emitting an erase-line or cursor-move at a line
+     * start would defeat the anchors identically.
+     */
+    private function plain(): string
+    {
+        return $this->plain ??= (string) preg_replace('/\e\[[0-9;?]*[ -\/]*[@-~]/', '', $this->output);
+    }
+
     public function verdict(): string
     {
         if (! $this->hasSummary()) {
@@ -141,7 +161,7 @@ class RunWitness
     public function hasSummary(): bool
     {
         foreach (self::SUMMARIES as $pattern) {
-            if (preg_match($pattern, $this->output) === 1) {
+            if (preg_match($pattern, $this->plain()) === 1) {
                 return true;
             }
         }
@@ -165,11 +185,11 @@ class RunWitness
         // The pao dialect carries no counts to add up — its verdict is the `result` field itself. Read it
         // FIRST, because a pao run has no `Tests:` line at all and would otherwise fall through to
         // `null`, which silently skips the exit-code disagreement check on 13 of the estate's roots.
-        if (preg_match('/^\{"tool":"[a-z0-9_-]+","result":"([a-z]+)"/m', $this->output, $pao) === 1) {
+        if (preg_match('/^\{"tool":"[a-z0-9_-]+","result":"([a-z]+)"/m', $this->plain(), $pao) === 1) {
             return $pao[1] === 'passed' ? 0 : 1;
         }
 
-        if (preg_match('/^\s*Tests:\s+.*$/m', $this->output, $match) !== 1) {
+        if (preg_match('/^\s*Tests:\s+.*$/m', $this->plain(), $match) !== 1) {
             return null;
         }
 
