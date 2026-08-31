@@ -99,6 +99,7 @@ run, the worker is already booted.
 | `--connection=` | Borrow host/port/credentials from this connection (default: the app default) |
 | `--name=` / `--slug=` | Set the database name outright, or just its suffix |
 | `--init=` | SQL file(s) to run inside the new database before anything migrates |
+| `--no-init` | Skip provisioning entirely and leave the database bare |
 | `--var=` | Extra env var names to emit, beyond `config('beam.dev.env')` and what the harness scan found |
 | `--any-driver` | Proceed even though your test harness pins a different driver |
 | `--drop-existing` | Recreate if it already exists |
@@ -119,7 +120,7 @@ return [
     'env'            => ['DB_DATABASE'],
     'harness_paths'  => null,   // null = cwd + base path; [] = disable discovery
     'sqlite_dir'     => env('BEAM_DEV_SQLITE_DIR'),
-    'init'           => [],
+    'init'           => null,   // null = the packaged extension SQL; [] = bare
 ];
 ```
 
@@ -147,11 +148,26 @@ drop runs in a different process than the create; the session key is the file *n
 `citext`, `vector` or a role dies with an error about the extension rather than about the missing
 setup step. Point this at the SQL your schema assumes has already run.
 
-⚠️ **`init` is empty by default and this package will not guess it.** With nothing configured the
-command creates a *bare* database and says so (`No provisioning SQL configured — the database is
-bare.`). It does not install extensions on your behalf, and "Created" has never meant "provisioned".
-If you arrived here because a scratch database lacked `vector` / `uuid-ossp` / `pg_trgm`, the step
-did not fail — it was never configured to run.
+It takes three values, and the difference between two of them is the whole thing:
+
+| value | what happens |
+| --- | --- |
+| `null` *(default)* | Run the canonical extension SQL this package ships — `uuid-ossp`, `citext`, `pg_trgm`, `fuzzystrmatch`, `vector` — **statement by statement**. Postgres only. An extension the server does not have is *named*, with what to install, and everything else is still provisioned. |
+| `['path/to.sql', …]` | Your files, run whole and in order. A failure is fatal: you declared a requirement, so a database that cannot meet it is not the database you asked for. |
+| `[]` | Nothing. A bare database. `--no-init` says the same for one run. |
+
+⚠️ **This defaulted to `[]` until 2026-08-30, and the change is a measurement rather than a
+preference.** `splicewire/tower`'s suite against a bare scratch database read
+`Tests: 465 failed, 412 passed` — every one of the 465 `type "vector" does not exist`. Provisioned,
+the same commit reads 10. The command printed a line saying the database was bare and that did not
+stop two sessions reading the red as a regression, because a bulk failure naming a *migration* does
+not look like a missing setup step. A default whose ordinary output is 465 false regressions is not
+conservative.
+
+`pgcrypto` is deliberately not in the packaged list. The only thing usually wanted from it is
+`gen_random_uuid()`, which has been core PostgreSQL since 13 — verified on a bare database with zero
+extensions on PostgreSQL 17, 2026-08-30. Every extension in that file is one more thing a server can
+fail to have.
 
 ## Honesty about what it did
 

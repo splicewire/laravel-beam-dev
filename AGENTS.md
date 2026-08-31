@@ -32,8 +32,17 @@ Two things hold as a result, and both are cheap enough that any new path should 
   successfully and a suite being able to connect are different claims; only the second is worth
   saying out loud.
 
-And say what was *not* done: `init` provisioning is opt-in, so with none configured the command
-states the database is bare rather than letting "Created" imply extensions.
+And say whose file did the work: `init` provisioning now runs by DEFAULT (the packaged
+`database/init/extensions.sql`), and the command labels that line as this package's default rather
+than letting it read as something the project declared. When a project opts out with `[]` or
+`--no-init`, it still says the database is bare rather than letting "Created" imply extensions.
+
+That default was `[]` until 2026-08-30. What changed it: `splicewire/tower` on a bare scratch
+database read `Tests: 465 failed, 412 passed`, every failure `type "vector" does not exist`, against
+10 failures provisioned. The "database is bare" line was printed and was not enough — a bulk failure
+naming a migration does not look like a missing setup step, and this package's whole subject is
+instruments that mislead rather than error. Saying what you did not do is necessary; it is not a
+substitute for a default that does not manufacture 465 false regressions.
 
 ## This package deletes databases
 
