@@ -162,15 +162,57 @@ class LoadCommand extends Command
             $procs[] = ['proc' => $proc, 'pipes' => $pipes];
         }
 
-        // Sampled while the children are actually in flight — a count taken after they exit measures
-        // the quiet that follows the run rather than the run.
-        $peak = $contention->connections($this->option('connection'));
+        // Drained NON-BLOCKING, and this is not a refinement — the first version read
+        // `stream_get_contents($stdout)` then `stream_get_contents($stderr)`, worker by worker, which
+        // deadlocks the moment a child fills its stderr pipe while the parent is blocked on its
+        // stdout. The sibling command in this very package already carries the fix and the reason:
+        // {@see WitnessRunCommand} — "both pipes must be drained concurrently or a runner that fills
+        // stderr while we block on stdout deadlocks". Reachable here on volume (a few thousand samples
+        // fills a pipe) and, worse, on the failure path, where a worker writes a stack trace.
+        $out = array_fill(0, count($procs), '');
+        $err = array_fill(0, count($procs), '');
+        $peak = 0;
+
+        foreach ($procs as $p) {
+            stream_set_blocking($p['pipes'][1], false);
+            stream_set_blocking($p['pipes'][2], false);
+        }
+
+        $open = true;
+
+        while ($open) {
+            $open = false;
+
+            foreach ($procs as $i => $p) {
+                foreach ([1 => &$out, 2 => &$err] as $fd => &$buffer) {
+                    if (! is_resource($p['pipes'][$fd]) || feof($p['pipes'][$fd])) {
+                        continue;
+                    }
+
+                    $open = true;
+                    $chunk = fread($p['pipes'][$fd], 8192);
+
+                    if ($chunk !== false && $chunk !== '') {
+                        $buffer[$i] .= $chunk;
+                    }
+                }
+                unset($buffer);
+            }
+
+            // Sampled REPEATEDLY while the children are in flight, and kept as a max. The first
+            // version took one reading immediately after spawning — before the workers had booted
+            // Laravel and opened a connection — so it reported the quiet before the run and called it
+            // the peak.
+            $peak = max($peak, (int) $contention->connections($this->option('connection')));
+
+            if ($open) {
+                usleep(10_000);
+            }
+        }
 
         $samples = [];
 
         foreach ($procs as $i => $p) {
-            $stdout = stream_get_contents($p['pipes'][1]);
-            $stderr = stream_get_contents($p['pipes'][2]);
             fclose($p['pipes'][1]);
             fclose($p['pipes'][2]);
             $exit = proc_close($p['proc']);
@@ -178,12 +220,12 @@ class LoadCommand extends Command
             if ($exit !== 0) {
                 // A dead worker contributes no samples, which would silently flatter every percentile
                 // computed from the survivors.
-                $this->error("Worker {$i} exited {$exit}: ".trim($stderr));
+                $this->error("Worker {$i} exited {$exit}: ".trim($err[$i]));
 
                 return [null, $peak];
             }
 
-            $decoded = json_decode(trim((string) $stdout), true);
+            $decoded = json_decode(trim($out[$i]), true);
 
             if (! is_array($decoded)) {
                 $this->error("Worker {$i} produced no parseable samples.");

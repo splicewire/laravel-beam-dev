@@ -72,19 +72,50 @@ class LoadMeasurementTest extends TestCase
      * milliseconds that are always multiples of 1000 and never looks broken. An engine that could do
      * the same would be worse than no engine.
      */
-    public function test_timing_resolution_is_sub_millisecond(): void
+    /**
+     * ⚠️ Rewritten after a mutation review. The first version asserted only that a no-op took more
+     * than 0ns and that the samples varied — which sounds like a resolution check and is not one. It
+     * measures "the clock ticks faster than NoopTarget runs", so it passes under 0-300us of jitter,
+     * and a `microtime(true)`-based implementation — the exact one {@see Sample} rejects — passed it
+     * 252 times in 500 trials.
+     *
+     * This asks the clock directly: what is the smallest non-zero interval it can express? That is a
+     * property of the timer, not of the workload, so no amount of jitter can make it pass falsely.
+     */
+    public function test_the_clock_resolves_finer_than_a_millisecond(): void
+    {
+        $deltas = [];
+
+        for ($i = 0; $i < 2_000; $i++) {
+            $a = hrtime(true);
+            $b = hrtime(true);
+
+            if ($b > $a) {
+                $deltas[] = $b - $a;
+            }
+        }
+
+        $this->assertNotEmpty($deltas, 'The clock never advanced between two consecutive reads.');
+
+        // A millisecond-resolution timer cannot produce a non-zero delta below 1_000_000ns. This is
+        // the assertion the old one only implied.
+        $this->assertLessThan(
+            1_000_000,
+            min($deltas),
+            'Smallest observable interval is >= 1ms — this clock cannot measure sub-millisecond work.',
+        );
+    }
+
+    /** The workload-level check, kept as the companion to the clock-level one above. */
+    public function test_a_no_op_target_still_produces_varying_non_zero_samples(): void
     {
         $runner = $this->app->make(TargetRunner::class);
 
         $samples = $runner->run(new NoopTarget, 20);
+        $durations = array_map(fn (Sample $s): int => $s->durationNs, $samples);
 
-        $distinct = array_unique(array_map(fn (Sample $s): int => $s->durationNs, $samples));
-
-        // A no-op takes well under a millisecond, so a millisecond-resolution clock would report every
-        // sample as 0 (or as an identical multiple). Both a non-zero reading and genuine variance are
-        // required — either alone could be produced by a broken clock.
-        $this->assertGreaterThan(0, max(array_map(fn (Sample $s): int => $s->durationNs, $samples)));
-        $this->assertGreaterThan(1, count($distinct), 'Every sample was identical — the clock is not resolving these runs.');
+        $this->assertGreaterThan(0, max($durations));
+        $this->assertGreaterThan(1, count(array_unique($durations)));
     }
 
     public function test_it_counts_queries_per_run_without_accumulating_listeners(): void
