@@ -280,6 +280,62 @@ base. Two concurrent runs sharing a base name share **every** worker database wi
 is the argument for a session-scoped base, i.e. for this command. `drop-db <base>` reaps the children
 with the parent.
 
+## Measure what breaks first — `load`
+
+Drive one declared operation at a controlled concurrency and get honest latency percentiles, queries
+per run, error rate, and what the database server was carrying while it ran.
+
+```bash
+# what does this host declare?
+artisan splicewire:beam:dev:load
+
+# 200 runs across 8 worker processes, as JSON
+artisan splicewire:beam:dev:load particle.fragments.index \
+    --iterations=200 --concurrency=8 --json
+```
+
+**Nothing is bound by default, and that is deliberate.** The set of operations worth measuring is a
+fact about the host's own declared surface, so beam-dev takes it through a port —
+`Splicewire\Beam\Dev\Load\LoadTargetSource` — and ships no implementation. Reading a family
+registry from here would make the family's development tool depend upward on the family.
+
+Unbound, the command **fails and says so**. It does not report an empty run. "No adapter installed"
+and "this host declares no operations" must not render identically, and the two branches are
+separately tested.
+
+### What the numbers mean, stated rather than assumed
+
+- **Percentiles are nearest-rank**, and the method is printed in every reading. "p95" is not one
+  definition, and the variants disagree on small samples by more than a tuning session is usually
+  chasing. Nearest-rank always returns a value some run actually took — an interpolated p99 is a
+  number no request ever took.
+- **Durations are integer nanoseconds** from `hrtime(true)`, a monotonic counter. Not `microtime()`,
+  whose float resolution decays as the epoch grows, and emphatically not a second-precision timestamp
+  column: this estate has one of those exposing a `duration_ms` accessor, and it returns milliseconds
+  that are always multiples of 1000 while never looking broken.
+- **Errors are excluded from latency and reported as a rate.** A failing request is usually fast, so
+  folding errors into the latency set makes a degrading system look like it is speeding up.
+- **Concurrency is real processes.** The parent spawns workers of itself via `proc_open`; PHP has no
+  in-process concurrency worth measuring against. A worker that exits non-zero **fails the whole run**
+  rather than quietly contributing no samples — a dead worker would flatter every percentile computed
+  from the survivors.
+
+### ⚠️ Read the connection counts before you read the latency
+
+Every reading carries `db_connections_before` / `_peak` / `_after`, sampled from the server
+(`pg_stat_activity`), not from this process's pool — a per-process count would report 1 while eight
+sibling workers saturated the cluster.
+
+At concurrency of 8 and up against one local server, **the thing you are measuring is the cluster,
+not the application.** This estate has that measurement already, in its loud form: two concurrent
+schema-creating suites exhausted one local Postgres with `out of shared memory`, killing ~60 tests
+including pure unit tests that touch no database, and the run read *196 failed* against a true figure
+of ~132. A load run is the same contention with the failure mode inverted — instead of phantom
+failures you get plausible latency, which is worse, because nothing about it looks wrong.
+
+A count of `null` means the driver could not be asked (sqlite has no server), never that the answer
+was zero.
+
 ## Check the run finished — `witness-run`
 
 Isolating the database doesn't make the run readable. A suite can stop partway, print the failures it

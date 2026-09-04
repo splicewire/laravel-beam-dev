@@ -6,6 +6,7 @@ use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Splicewire\Beam\Dev\Console\DropDbCommand;
 use Splicewire\Beam\Dev\Console\IsolatedTestDbCommand;
+use Splicewire\Beam\Dev\Console\LoadCommand;
 use Splicewire\Beam\Dev\Console\WireNamesCommand;
 use Splicewire\Beam\Dev\Console\WitnessRunCommand;
 use Splicewire\Beam\Dev\Databases\DropGuard;
@@ -72,6 +73,7 @@ class BeamDevServiceProvider extends PackageServiceProvider
                 DropDbCommand::class,
                 WireNamesCommand::class,
                 WitnessRunCommand::class,
+                LoadCommand::class,
             ]);
         }
     }

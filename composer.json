@@ -50,6 +50,14 @@
             "providers": [
                 "Splicewire\\Beam\\Dev\\BeamDevServiceProvider"
             ]
+        },
+        "package-topology": {
+            "because": "beam-dev is family-BLIND by charter: it is developer tooling for the Beam family that must never learn a family type, because every consumer installs it as require-dev and a dependency upward would invert the direction the whole ladder is built on. That blindness is why the load engine takes its work through the LoadTargetSource PORT and ships no implementation of it \u2014 the adapter that reads a host's particle registries lives at beam tier, not here. Declared 2026-09-04: this package previously carried NO topology block at all, so a wrong dependency added here would have passed every lint in the estate.",
+            "mustNotRequire": [
+                "splicewire/*",
+                "schemastud/*",
+                "rushing/*"
+            ]
         }
     },
     "minimum-stability": "dev",
