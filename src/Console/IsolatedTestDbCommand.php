@@ -318,7 +318,8 @@ class IsolatedTestDbCommand extends Command
         // mirror and compiled artifacts follow the disk, not the connection). beam-ux moves every disk it writes under
         // one scratch root when this is set.
         $this->newLine();
-        $this->line('Rehearsing a seed or import against it? Keep its files out of storage/ too:');
+        $this->line('Rehearsing a seed or import against it? Keep beam-ux\'s files (body mirrors, compiled artifacts) out of storage/ too;');
+        $this->line('  other disks a seed writes (local/public, media, tenancy, logs) still target this checkout:');
         $this->line('  <info>BEAM_SCRATCH_STORAGE_ROOT='.rtrim(sys_get_temp_dir(), '/').'/'.$name.'-storage</info> (delete that directory when you reap the database)');
 
         $this->reportOverriddenPins($harness, $vars);
