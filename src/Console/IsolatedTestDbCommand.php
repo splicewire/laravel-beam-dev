@@ -314,6 +314,13 @@ class IsolatedTestDbCommand extends Command
             $this->line("  (those override <comment>{$replacing}</comment> for this run only — nothing on disk changes)");
         }
 
+        // Row 13355b04: a SEED rehearsed against this database still writes the checkout's storage/ (beam-ux's body
+        // mirror and compiled artifacts follow the disk, not the connection). beam-ux moves every disk it writes under
+        // one scratch root when this is set.
+        $this->newLine();
+        $this->line('Rehearsing a seed or import against it? Keep its files out of storage/ too:');
+        $this->line('  <info>BEAM_SCRATCH_STORAGE_ROOT='.rtrim(sys_get_temp_dir(), '/').'/'.$name.'-storage</info> (delete that directory when you reap the database)');
+
         $this->reportOverriddenPins($harness, $vars);
         $this->explainParallelDerivation($name);
         $this->warnAboutMemoryLimit();
