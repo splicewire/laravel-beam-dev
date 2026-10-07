@@ -41,9 +41,11 @@ class CommandsTest extends TestCase
         // On SQLite the env value is the PATH to the file; a bare name would point at nothing.
         $this->assertStringContainsString('DB_DATABASE='.$this->pathFor('test_abc123'), $output);
         $this->assertStringContainsString('drop-db test_abc123', $output);
-        // Row 13355b04: a seed rehearsed against the scratch DB still wrote the checkout's storage/; the scratch root
-        // that keeps its files out is named where the scratch DB is made.
-        $this->assertStringContainsString('BEAM_SCRATCH_STORAGE_ROOT='.sys_get_temp_dir().'/test_abc123-storage', $output);
+        // A storage override belongs only to a separate seed/import rehearsal. Printing a bare assignment beside the
+        // suite recipe led callers to export it into the suite, where nav.yml disappeared behind the empty scratch root.
+        $this->assertStringContainsString(sys_get_temp_dir().'/test_abc123-storage', $output);
+        $this->assertStringContainsString('Do not export BEAM_SCRATCH_STORAGE_ROOT into the suite environment.', $output);
+        $this->assertStringNotContainsString('BEAM_SCRATCH_STORAGE_ROOT='.sys_get_temp_dir().'/test_abc123-storage', $output);
 
         $this->assertTrue($this->app->make(ScratchDatabases::class)->exists('test_abc123', 'scratch'));
     }
