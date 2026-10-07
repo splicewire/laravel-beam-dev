@@ -314,13 +314,14 @@ class IsolatedTestDbCommand extends Command
             $this->line("  (those override <comment>{$replacing}</comment> for this run only — nothing on disk changes)");
         }
 
-        // Row 13355b04: a SEED rehearsed against this database still writes the checkout's storage/ (beam-ux's body
-        // mirror and compiled artifacts follow the disk, not the connection). beam-ux moves every disk it writes under
-        // one scratch root when this is set.
+        // A SEED rehearsed against this database still writes the checkout's storage/ (beam-ux's body mirror and
+        // compiled artifacts follow the disk, not the connection). Name a scratch path, but do not print a bare env
+        // assignment beside the suite recipe: callers carried it into suites and hid their authored nav source.
         $this->newLine();
         $this->line('Rehearsing a seed or import against it? Keep beam-ux\'s files (body mirrors, compiled artifacts) out of storage/ too;');
         $this->line('  other disks a seed writes (local/public, media, tenancy, logs) still target this checkout:');
-        $this->line('  <info>BEAM_SCRATCH_STORAGE_ROOT='.rtrim(sys_get_temp_dir(), '/').'/'.$name.'-storage</info> (delete that directory when you reap the database)');
+        $this->line('  beam-ux scratch path: <info>'.rtrim(sys_get_temp_dir(), '/').'/'.$name.'-storage</info> (delete it when you reap the database)');
+        $this->line('  <error>Do not export BEAM_SCRATCH_STORAGE_ROOT into the suite environment.</error> Scope it to the separate seed/import process only.');
 
         $this->reportOverriddenPins($harness, $vars);
         $this->explainParallelDerivation($name);
