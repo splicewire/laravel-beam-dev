@@ -64,25 +64,67 @@ class CommandsTest extends TestCase
     }
 
     /**
-     * Reuse is the default (rig-hardening slice 05): with no slug, a seat gets ONE database named after it, and the
-     * second run reuses it instead of minting another. A random default made every run a new database to reap.
+     * Reuse is the default (rig-hardening slice 05): with no slug, a seat gets ONE database per worktree, named
+     * <seat>_<rig>_<worktree hash>, and the second run reuses it. A random default made every run a new database.
      */
-    public function test_the_default_slug_is_the_seat_so_a_rerun_reuses_its_database(): void
+    public function test_the_default_slug_is_seat_rig_and_worktree_so_a_rerun_reuses_its_database(): void
     {
         putenv('OPENRIG_SESSION_NAME=build-impl@launch');
+        $expected = 'test_build_impl_launch_'.substr(hash('sha256', realpath((string) getcwd())), 0, 8);
 
         try {
-            $this->assertStringContainsString('Created test_build_impl', $this->runCommand('splicewire:beam:dev:isolated-test-db'));
-            $this->assertStringContainsString('Reusing existing test_build_impl', $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+            $this->assertStringContainsString('Created '.$expected, $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+            $this->assertStringContainsString('Reusing existing '.$expected, $this->runCommand('splicewire:beam:dev:isolated-test-db'));
         } finally {
             putenv('OPENRIG_SESSION_NAME');
         }
     }
 
-    public function test_outside_a_rig_the_default_slug_is_the_checkout(): void
+    /**
+     * review-r1 P4: the seat name before '@' alone collided across worktrees and across rigs.
+     */
+    public function test_two_worktrees_or_two_rigs_never_share_the_default_database(): void
+    {
+        $names = [];
+        $here = getcwd();
+
+        try {
+            foreach ([['build-impl@launch', sys_get_temp_dir()], ['build-impl@launch', $here], ['build-impl@other', $here]] as [$seat, $dir]) {
+                putenv("OPENRIG_SESSION_NAME={$seat}");
+                chdir($dir);
+                preg_match('/Created (test_\w+)/', $this->runCommand('splicewire:beam:dev:isolated-test-db'), $m);
+                $names[] = $m[1] ?? null;
+            }
+        } finally {
+            chdir($here);
+            putenv('OPENRIG_SESSION_NAME');
+        }
+
+        $this->assertCount(3, array_unique(array_filter($names)), implode(' ', $names));
+    }
+
+    /**
+     * The launch rig's test-full derives the same name (tests/test-full.test.mjs pins this vector).
+     */
+    public function test_the_default_name_matches_the_launch_rig_runner(): void
+    {
+        $here = getcwd();
+        putenv('OPENRIG_SESSION_NAME=build-impl@launch');
+
+        try {
+            chdir('/');
+            $this->assertStringContainsString('Created test_build_impl_launch_8a5edab2', $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+        } finally {
+            chdir($here);
+            putenv('OPENRIG_SESSION_NAME');
+        }
+    }
+
+    public function test_outside_a_rig_the_default_slug_is_the_checkout_and_its_hash(): void
     {
         putenv('OPENRIG_SESSION_NAME');
-        $expected = 'test_'.preg_replace('/[^A-Za-z0-9_]/', '_', strtolower(basename((string) getcwd())));
+        $cwd = realpath((string) getcwd());
+        $expected = 'test_'.strtolower(trim((string) preg_replace('/[^A-Za-z0-9]+/', '_', basename($cwd)), '_')).'_norig_'.substr(hash('sha256', $cwd), 0, 8);
 
         $this->assertStringContainsString('Created '.$expected, $this->runCommand('splicewire:beam:dev:isolated-test-db'));
     }

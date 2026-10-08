@@ -59,7 +59,7 @@ class IsolatedTestDbCommand extends Command
     protected $signature = 'splicewire:beam:dev:isolated-test-db
         {--connection= : Connection whose host/credentials to borrow (default: the app default)}
         {--name= : Full database name to use, overriding prefix+slug}
-        {--slug= : Suffix appended to the prefix (default: this seat\'s name from OPENRIG_SESSION_NAME, else this checkout\'s directory, so every run REUSES one database)}
+        {--slug= : Suffix appended to the prefix (default: <seat>_<rig>_<worktree hash> from OPENRIG_SESSION_NAME and this checkout, so every run of this seat in this worktree REUSES one database)}
         {--init=* : SQL file(s) to run inside the new database before anything migrates}
         {--no-init : Skip provisioning entirely and leave the database bare}
         {--var=* : Extra env var names to emit pointing at the database, beyond config}
@@ -170,16 +170,23 @@ class IsolatedTestDbCommand extends Command
     }
 
     /**
-     * The default is REUSE: one long-lived scratch database per seat (or per checkout outside a rig), never a fresh
-     * random one per run. Per-run create/migrate/drop churn rewrote ~35k files in the Postgres data directory every
-     * few minutes on 2026-10-06 and held the Mac's load at 60-170 for a day (ecosystem
-     * docs/agents/traps/running-a-suite.md §Isolation and attribution; rig-hardening slice 05).
+     * The default is REUSE: one long-lived scratch database per seat AND worktree, never a fresh random one per run.
+     * Per-run create/migrate/drop churn rewrote ~35k files in the Postgres data directory every few minutes on
+     * 2026-10-06 and held the Mac's load at 60-170 for a day (ecosystem docs/agents/traps/running-a-suite.md).
+     *
+     * The identity is `<seat>_<rig>_<sha256(realpath(cwd))[:8]>` (outside a rig, `<checkout>_norig_<hash>`), so two
+     * worktrees of one seat, or one seat name in two rigs, never share a database. It is the SAME derivation as the
+     * launch rig's `rigs/launch/bin/test-full` (`seatDb()`), so the runner finds the database this command made.
      */
     private function defaultSlug(): string
     {
-        $seat = (string) getenv('OPENRIG_SESSION_NAME');
+        $session = (string) getenv('OPENRIG_SESSION_NAME');
+        $cwd = realpath((string) getcwd()) ?: (string) getcwd();
+        [$seat, $rig] = $session !== '' ? array_pad(explode('@', $session, 2), 2, '') : [basename($cwd), 'norig'];
+        $clean = static fn (string $s): string => strtolower(trim((string) preg_replace('/[^A-Za-z0-9]+/', '_', $s), '_'));
+        $tail = '_'.$clean($rig !== '' ? $rig : 'norig').'_'.substr(hash('sha256', $cwd), 0, 8);
 
-        return Str::lower($seat !== '' ? Str::before($seat, '@') : basename((string) getcwd()));
+        return substr($clean($seat), 0, 63 - 5 - strlen($tail)).$tail;
     }
 
     /**
