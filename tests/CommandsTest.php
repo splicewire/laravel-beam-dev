@@ -64,6 +64,39 @@ class CommandsTest extends TestCase
     }
 
     /**
+     * Reuse is the default (rig-hardening slice 05): with no slug, a seat gets ONE database named after it, and the
+     * second run reuses it instead of minting another. A random default made every run a new database to reap.
+     */
+    public function test_the_default_slug_is_the_seat_so_a_rerun_reuses_its_database(): void
+    {
+        putenv('OPENRIG_SESSION_NAME=build-impl@launch');
+
+        try {
+            $this->assertStringContainsString('Created test_build_impl', $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+            $this->assertStringContainsString('Reusing existing test_build_impl', $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+        } finally {
+            putenv('OPENRIG_SESSION_NAME');
+        }
+    }
+
+    public function test_outside_a_rig_the_default_slug_is_the_checkout(): void
+    {
+        putenv('OPENRIG_SESSION_NAME');
+        $expected = 'test_'.preg_replace('/[^A-Za-z0-9_]/', '_', strtolower(basename((string) getcwd())));
+
+        $this->assertStringContainsString('Created '.$expected, $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+    }
+
+    public function test_it_says_keep_the_database_and_drop_in_a_batch_not_reap_per_run(): void
+    {
+        $output = $this->runCommand('splicewire:beam:dev:isolated-test-db', ['--slug' => 'kept']);
+
+        $this->assertStringContainsString('Keep it: the next run with the same slug reuses it', $output);
+        $this->assertStringContainsString('in a batch at the end of the working session', $output);
+        $this->assertStringNotContainsString('Reap it when the run is done', $output);
+    }
+
+    /**
      * Every env var listed in config must be emitted, not just the first. Overriding one while a
      * second connection still reads the shared database is the most common way isolation silently
      * does nothing.

@@ -59,7 +59,7 @@ class IsolatedTestDbCommand extends Command
     protected $signature = 'splicewire:beam:dev:isolated-test-db
         {--connection= : Connection whose host/credentials to borrow (default: the app default)}
         {--name= : Full database name to use, overriding prefix+slug}
-        {--slug= : Suffix appended to the prefix (default: a random one)}
+        {--slug= : Suffix appended to the prefix (default: this seat\'s name from OPENRIG_SESSION_NAME, else this checkout\'s directory, so every run REUSES one database)}
         {--init=* : SQL file(s) to run inside the new database before anything migrates}
         {--no-init : Skip provisioning entirely and leave the database bare}
         {--var=* : Extra env var names to emit pointing at the database, beyond config}
@@ -164,9 +164,22 @@ class IsolatedTestDbCommand extends Command
         }
 
         $prefix = (string) config('beam.dev.prefix', 'test_');
-        $slug = (string) ($this->option('slug') ?: Str::lower(Str::random(8)));
+        $slug = (string) ($this->option('slug') ?: $this->defaultSlug());
 
         return $prefix.preg_replace('/[^A-Za-z0-9_]/', '_', $slug);
+    }
+
+    /**
+     * The default is REUSE: one long-lived scratch database per seat (or per checkout outside a rig), never a fresh
+     * random one per run. Per-run create/migrate/drop churn rewrote ~35k files in the Postgres data directory every
+     * few minutes on 2026-10-06 and held the Mac's load at 60-170 for a day (ecosystem
+     * docs/agents/traps/running-a-suite.md §Isolation and attribution; rig-hardening slice 05).
+     */
+    private function defaultSlug(): string
+    {
+        $seat = (string) getenv('OPENRIG_SESSION_NAME');
+
+        return Str::lower($seat !== '' ? Str::before($seat, '@') : basename((string) getcwd()));
     }
 
     /**
@@ -328,7 +341,8 @@ class IsolatedTestDbCommand extends Command
         $this->warnAboutMemoryLimit();
 
         $this->newLine();
-        $this->line('Reap it when the run is done:');
+        $this->line('Keep it: the next run with the same slug reuses it (one long-lived scratch database per seat).');
+        $this->line('Drop scratch databases in a batch at the end of the working session, not after each run:');
         $this->line('  <info>php artisan splicewire:beam:dev:drop-db '.$name
             .($connection === (string) config('database.default') ? '' : " --connection={$connection}").'</info>');
     }
