@@ -2,6 +2,7 @@
 
 namespace Splicewire\Beam\Dev\Console;
 
+use Dotenv\Dotenv;
 use Illuminate\Console\Command;
 use Splicewire\Beam\Dev\Runs\RunWitness;
 
@@ -168,19 +169,23 @@ class WitnessRunCommand extends Command
         return [$captured, proc_close($process)];
     }
 
-    /**
-     * The runner must not inherit secrets loaded from the host application's `.env` file.
-     * Keep only the process basics needed to find tools and preserve terminal locale behaviour.
-     *
-     * @return array<string, string>
-     */
+    /** @return array<string, string> */
     private function childEnvironment(): array
     {
-        $environment = [];
+        $environment = (array) getenv();
+        $environmentFile = app()->environmentFilePath();
 
-        foreach ((array) getenv() as $name => $value) {
-            if (in_array($name, ['PATH', 'HOME', 'LANG', 'LANGUAGE'], true) || str_starts_with($name, 'LC_')) {
-                $environment[$name] = (string) $value;
+        if (is_file($environmentFile)) {
+            $contents = file_get_contents($environmentFile);
+
+            if ($contents === false) {
+                throw new \RuntimeException("Unable to read the loaded environment file [{$environmentFile}].");
+            }
+
+            foreach (Dotenv::parse($contents) as $name => $value) {
+                if (array_key_exists($name, $environment) && $environment[$name] === (string) $value) {
+                    unset($environment[$name]);
+                }
             }
         }
 

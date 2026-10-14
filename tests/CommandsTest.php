@@ -41,6 +41,8 @@ class CommandsTest extends TestCase
         $originalEnvironment = (array) getenv();
         $originalEnv = $_ENV;
         $originalServer = $_SERVER;
+        $originalEnvironmentPath = $this->app->environmentPath();
+        $originalEnvironmentFile = $this->app->environmentFile();
         $safeEnvironment = array_filter(
             $originalEnvironment,
             fn (string $name): bool => in_array($name, ['PATH', 'HOME', 'LANG', 'LANGUAGE'], true)
@@ -53,9 +55,16 @@ class CommandsTest extends TestCase
         $safeEnvironment['LC_ALL'] = 'C';
 
         mkdir($fixture, 0755, true);
-        file_put_contents($fixture.'/.env', "WITNESS_ENV_SENTINEL=sentinel\nAPP_ENV=local\n");
+        file_put_contents(
+            $fixture.'/.env',
+            "WITNESS_ENV_SENTINEL=sentinel\nWITNESS_ENV_OVERRIDE=dotenv\nAPP_ENV=local\n",
+        );
         $this->replaceProcessEnvironment($safeEnvironment);
+        $this->app->useEnvironmentPath($fixture)->loadEnvironmentFrom('.env');
         Dotenv::createUnsafeMutable($fixture)->load();
+        putenv('TEST_DB_DATABASE=test_witness_isolated');
+        putenv('XDEBUG_MODE=off');
+        putenv('WITNESS_ENV_OVERRIDE=caller');
 
         try {
             $output = $this->runCommand('splicewire:beam:dev:witness-run', [
@@ -70,10 +79,15 @@ class CommandsTest extends TestCase
             $this->assertStringContainsString('HOME='.(string) getenv('HOME'), $output);
             $this->assertStringContainsString('LANG='.(string) getenv('LANG'), $output);
             $this->assertStringContainsString('LC_ALL='.(string) getenv('LC_ALL'), $output);
+            $this->assertStringContainsString('TEST_DB_DATABASE=test_witness_isolated', $output);
+            $this->assertStringContainsString('XDEBUG_MODE=off', $output);
+            $this->assertStringContainsString('WITNESS_ENV_OVERRIDE=caller', $output);
+            $this->assertStringNotContainsString('WITNESS_ENV_OVERRIDE=dotenv', $output);
         } finally {
             $this->replaceProcessEnvironment($originalEnvironment);
             $_ENV = $originalEnv;
             $_SERVER = $originalServer;
+            $this->app->useEnvironmentPath($originalEnvironmentPath)->loadEnvironmentFrom($originalEnvironmentFile);
             @unlink($log);
             @unlink($fixture.'/.env');
             @rmdir($fixture);
