@@ -2,6 +2,7 @@
 
 namespace Splicewire\Beam\Dev\Tests;
 
+use Dotenv\Dotenv;
 use Illuminate\Support\Facades\Artisan;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
 
@@ -31,6 +32,64 @@ class CommandsTest extends TestCase
     private function pathFor(string $name): string
     {
         return $this->scratchDir()."/{$name}.sqlite";
+    }
+
+    public function test_witness_run_scrubs_dotenv_values_from_the_child_environment(): void
+    {
+        $fixture = sys_get_temp_dir().'/beam-dev-witness-env-'.getmypid().'-'.bin2hex(random_bytes(6));
+        $log = $fixture.'/witness.log';
+        $originalEnvironment = (array) getenv();
+        $originalEnv = $_ENV;
+        $originalServer = $_SERVER;
+        $safeEnvironment = array_filter(
+            $originalEnvironment,
+            fn (string $name): bool => in_array($name, ['PATH', 'HOME', 'LANG', 'LANGUAGE'], true)
+                || str_starts_with($name, 'LC_'),
+            ARRAY_FILTER_USE_KEY,
+        );
+        $safeEnvironment['PATH'] = $safeEnvironment['PATH'] ?? '/usr/bin:/bin';
+        $safeEnvironment['HOME'] = $safeEnvironment['HOME'] ?? sys_get_temp_dir();
+        $safeEnvironment['LANG'] = 'C';
+        $safeEnvironment['LC_ALL'] = 'C';
+
+        mkdir($fixture, 0755, true);
+        file_put_contents($fixture.'/.env', "WITNESS_ENV_SENTINEL=sentinel\nAPP_ENV=local\n");
+        $this->replaceProcessEnvironment($safeEnvironment);
+        Dotenv::createUnsafeMutable($fixture)->load();
+
+        try {
+            $output = $this->runCommand('splicewire:beam:dev:witness-run', [
+                'runner' => ['/usr/bin/env'],
+                '--log' => $log,
+            ]);
+
+            $this->assertStringNotContainsString('WITNESS_ENV_SENTINEL=sentinel', $output);
+            $this->assertStringContainsString('APP_ENV=testing', $output);
+            $this->assertStringNotContainsString('APP_ENV=local', $output);
+            $this->assertStringContainsString('PATH='.(string) getenv('PATH'), $output);
+            $this->assertStringContainsString('HOME='.(string) getenv('HOME'), $output);
+            $this->assertStringContainsString('LANG='.(string) getenv('LANG'), $output);
+            $this->assertStringContainsString('LC_ALL='.(string) getenv('LC_ALL'), $output);
+        } finally {
+            $this->replaceProcessEnvironment($originalEnvironment);
+            $_ENV = $originalEnv;
+            $_SERVER = $originalServer;
+            @unlink($log);
+            @unlink($fixture.'/.env');
+            @rmdir($fixture);
+        }
+    }
+
+    /** @param array<string, string> $environment */
+    private function replaceProcessEnvironment(array $environment): void
+    {
+        foreach (array_keys((array) getenv()) as $name) {
+            putenv($name);
+        }
+
+        foreach ($environment as $name => $value) {
+            putenv($name.'='.$value);
+        }
     }
 
     public function test_it_creates_a_scratch_database_and_prints_the_env(): void

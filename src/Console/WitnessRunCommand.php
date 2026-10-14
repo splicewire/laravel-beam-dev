@@ -112,7 +112,7 @@ class WitnessRunCommand extends Command
     private function spawn(array $command, string $log): array
     {
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = @proc_open($command, $descriptors, $pipes, base_path());
+        $process = @proc_open($command, $descriptors, $pipes, base_path(), $this->childEnvironment());
 
         if (! is_resource($process)) {
             // Could not spawn at all — no output, and no summary, so the witness reports TRUNCATED,
@@ -166,6 +166,27 @@ class WitnessRunCommand extends Command
         }
 
         return [$captured, proc_close($process)];
+    }
+
+    /**
+     * The runner must not inherit secrets loaded from the host application's `.env` file.
+     * Keep only the process basics needed to find tools and preserve terminal locale behaviour.
+     *
+     * @return array<string, string>
+     */
+    private function childEnvironment(): array
+    {
+        $environment = [];
+
+        foreach ((array) getenv() as $name => $value) {
+            if (in_array($name, ['PATH', 'HOME', 'LANG', 'LANGUAGE'], true) || str_starts_with($name, 'LC_')) {
+                $environment[$name] = (string) $value;
+            }
+        }
+
+        $environment['APP_ENV'] = 'testing';
+
+        return $environment;
     }
 
     private function assertLog(string $log, int $exitCode): int
