@@ -197,9 +197,43 @@ class CommandsTest extends TestCase
     {
         putenv('OPENRIG_SESSION_NAME');
         $cwd = realpath((string) getcwd());
-        $expected = 'test_'.strtolower(trim((string) preg_replace('/[^A-Za-z0-9]+/', '_', basename($cwd)), '_')).'_norig_'.substr(hash('sha256', $cwd), 0, 8);
 
-        $this->assertStringContainsString('Created '.$expected, $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+        $this->assertStringContainsString('Created '.$this->expectedOutsideRig($cwd), $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+    }
+
+    /**
+     * PostgreSQL silently truncates identifiers to 63 bytes, so the command shortens the checkout part and keeps the
+     * `_norig_<hash>` tail whole: the hash is what keeps two worktrees apart. A long worktree basename (the
+     * `.wt-<seat>-<repo>-<slice>` convention easily passes 43 characters) must yield that truncated name.
+     */
+    public function test_a_long_checkout_basename_is_truncated_to_postgres_63_keeping_the_hash(): void
+    {
+        $here = getcwd();
+        $dir = sys_get_temp_dir().'/'.str_repeat('a-very-long-checkout-basename-', 3).bin2hex(random_bytes(4));
+        mkdir($dir);
+        putenv('OPENRIG_SESSION_NAME');
+
+        try {
+            chdir($dir);
+            $cwd = realpath($dir);
+            $expected = $this->expectedOutsideRig($cwd);
+
+            $this->assertSame(63, strlen($expected));
+            $this->assertStringEndsWith('_norig_'.substr(hash('sha256', $cwd), 0, 8), $expected);
+            $this->assertStringContainsString('Created '.$expected, $this->runCommand('splicewire:beam:dev:isolated-test-db'));
+        } finally {
+            chdir($here);
+            rmdir($dir);
+        }
+    }
+
+    /** The command's outside-a-rig name: `test_` + the cleaned checkout basename cut to fit 63 + `_norig_<hash8>`. */
+    private function expectedOutsideRig(string $cwd): string
+    {
+        $tail = '_norig_'.substr(hash('sha256', $cwd), 0, 8);
+        $checkout = strtolower(trim((string) preg_replace('/[^A-Za-z0-9]+/', '_', basename($cwd)), '_'));
+
+        return 'test_'.substr($checkout, 0, 63 - strlen('test_') - strlen($tail)).$tail;
     }
 
     public function test_it_says_keep_the_database_and_drop_in_a_batch_not_reap_per_run(): void
