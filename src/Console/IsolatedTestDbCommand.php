@@ -3,7 +3,6 @@
 namespace Splicewire\Beam\Dev\Console;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Str;
 use RuntimeException;
 use Splicewire\Beam\Dev\Databases\IsolationGuard;
 use Splicewire\Beam\Dev\Databases\ProvisioningSql;
@@ -58,7 +57,7 @@ class IsolatedTestDbCommand extends Command
 {
     protected $signature = 'splicewire:beam:dev:isolated-test-db
         {--connection= : Connection whose host/credentials to borrow (default: the app default)}
-        {--name= : Full database name to use, overriding prefix+slug}
+        {--name= : Database name to use instead of a slug (the scratch prefix is added when absent)}
         {--slug= : Suffix appended to the prefix (default: <seat>_<rig>_<worktree hash> from OPENRIG_SESSION_NAME and this checkout, so every run of this seat in this worktree REUSES one database)}
         {--init=* : SQL file(s) to run inside the new database before anything migrates}
         {--no-init : Skip provisioning entirely and leave the database bare}
@@ -159,11 +158,14 @@ class IsolatedTestDbCommand extends Command
 
     private function resolveName(): string
     {
+        $prefix = (string) config('beam.dev.prefix', 'test_');
+
         if ($explicit = $this->option('name')) {
-            return (string) $explicit;
+            $explicit = (string) $explicit;
+
+            return str_starts_with($explicit, $prefix) ? $explicit : $prefix.$explicit;
         }
 
-        $prefix = (string) config('beam.dev.prefix', 'test_');
         $slug = (string) ($this->option('slug') ?: $this->defaultSlug());
 
         return $prefix.preg_replace('/[^A-Za-z0-9_]/', '_', $slug);

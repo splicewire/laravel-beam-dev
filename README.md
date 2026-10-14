@@ -97,7 +97,7 @@ run, the worker is already booted.
 | option | |
 | --- | --- |
 | `--connection=` | Borrow host/port/credentials from this connection (default: the app default) |
-| `--name=` / `--slug=` | Set the database name outright, or just its suffix |
+| `--name=` / `--slug=` | Choose a database name or suffix; the configured scratch prefix is added when absent |
 | `--init=` | SQL file(s) to run inside the new database before anything migrates |
 | `--no-init` | Skip provisioning entirely and leave the database bare |
 | `--var=` | Extra env var names to emit, beyond `config('beam.dev.env')` and what the harness scan found |

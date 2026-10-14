@@ -123,6 +123,25 @@ class CommandsTest extends TestCase
         $this->assertTrue($this->app->make(ScratchDatabases::class)->exists('test_abc123', 'scratch'));
     }
 
+    public function test_an_explicit_name_is_scoped_to_the_scratch_prefix_and_plain_drop_can_reap_it(): void
+    {
+        $databases = $this->app->make(ScratchDatabases::class);
+        $output = $this->runCommand('splicewire:beam:dev:isolated-test-db', ['--name' => 'owned']);
+
+        $this->assertStringContainsString('Created test_owned', $output);
+        $this->assertFalse($databases->exists('owned', 'scratch'));
+        $this->assertTrue($databases->exists('test_owned', 'scratch'));
+
+        $this->artisan('splicewire:beam:dev:drop-db', ['names' => ['test_owned']])->assertSuccessful();
+
+        $this->assertFalse($databases->exists('test_owned', 'scratch'));
+
+        $prefixed = $this->runCommand('splicewire:beam:dev:isolated-test-db', ['--name' => 'test_already']);
+
+        $this->assertStringContainsString('Created test_already', $prefixed);
+        $this->assertStringNotContainsString('test_test_already', $prefixed);
+    }
+
     /**
      * Re-running must be free. A provisioning step that fails the second time forces every caller to
      * guard it, which is how "just run this first" turns into a script nobody wants to touch.
