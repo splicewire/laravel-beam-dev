@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Splicewire\Beam\Dev\Databases\IsolationGuard;
+use Splicewire\Beam\Dev\Databases\ProvisioningSql;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
 use Splicewire\Beam\Dev\Databases\ServerConnection;
 use Splicewire\Beam\Dev\Databases\SuiteHarness;
@@ -25,12 +26,23 @@ use Throwable;
  * already run, and remember which env var the test runner actually reads. This command does all
  * four, idempotently.
  *
- * ⚠️ **Provisioning is opt-in and this command does not guess it.** Extensions (`vector`,
- * `uuid-ossp`, `pg_trgm`, …), roles and search paths are run only from the SQL files listed in
- * `config('beam.dev.init')` or passed as `--init`. The default is an empty list, so a bare invocation
- * creates a BARE database — correct, reachable, and with no extensions in it. A project whose
- * migrations need one says so once in config; until it does, the first migration that needs an
- * extension is where it will find out. The command says as much on the way past.
+ * **Provisioning happens by default** (changed 2026-08-30). Extensions (`vector`, `uuid-ossp`,
+ * `citext`, `pg_trgm`, `fuzzystrmatch`) come from this package's own
+ * `database/init/extensions.sql` unless the project declares its own files in
+ * `config('beam.dev.init')` or passes `--init`. `--no-init`, or `'init' => []`, opts out.
+ *
+ * It used to default to an empty list, on the reasoning that a tool should not guess a project's
+ * schema requirements. The measurement that overturned it: `splicewire/tower`'s suite against a bare
+ * scratch database reads `Tests: 465 failed, 412 passed`, and every one of the 465 is
+ * `type "vector" does not exist`. Provisioned, the same commit reads 10 failures. A tool whose
+ * default output is a database that manufactures 465 false regressions is not being conservative —
+ * it is producing this estate's signature defect, an instrument that misleads rather than errors, and
+ * the line it printed saying the database was bare did not stop that from happening twice.
+ *
+ * The default file is run STATEMENT BY STATEMENT and tolerantly: an extension the server does not
+ * have is named, with what to install, and everything else is still provisioned. A project's own
+ * declared files are run whole and a failure is fatal — it declared a requirement, so a database that
+ * cannot meet it is not the database it asked for.
  *
  * Three honesty rules it holds, all of them repairs of a measured defect (2026-08-27):
  *
@@ -49,11 +61,12 @@ class IsolatedTestDbCommand extends Command
         {--name= : Full database name to use, overriding prefix+slug}
         {--slug= : Suffix appended to the prefix (default: a random one)}
         {--init=* : SQL file(s) to run inside the new database before anything migrates}
+        {--no-init : Skip provisioning entirely and leave the database bare}
         {--var=* : Extra env var names to emit pointing at the database, beyond config}
         {--any-driver : Proceed even though the project\'s test harness pins a different driver}
         {--drop-existing : Drop and recreate if it already exists}';
 
-    protected $description = 'Create a session-scoped scratch database, verify it is reachable, and print the env that targets it (provisioning SQL is opt-in via config)';
+    protected $description = 'Create a session-scoped scratch database, provision the Postgres extensions a suite assumes, verify it is reachable, and print the env that targets it';
 
     public function handle(
         ScratchDatabases $databases,
@@ -109,15 +122,22 @@ class IsolatedTestDbCommand extends Command
                 ? "Created <info>{$name}</info> on connection <comment>{$connection}</comment>."
                 : "Reusing existing <info>{$name}</info> on connection <comment>{$connection}</comment>.");
 
-            $init = $this->initFiles($harness);
+            [$init, $defaulted] = $this->initFiles($harness, $server->driverFor($connection));
 
             if ($init !== []) {
-                $databases->runSqlFiles($name, $connection, $init);
-                $this->line('Provisioned: '.implode(', ', array_map('basename', $init)));
+                $failures = $databases->runSqlFiles($name, $connection, $init, tolerant: $defaulted);
+
+                $this->line('Provisioned: '.implode(', ', array_map(basename(...), $init))
+                    .($defaulted ? ' <comment>(this package\'s default — set config(\'beam.dev.init\') to declare your own)</comment>' : ''));
+
+                $this->reportProvisioningFailures($failures);
             } else {
                 // Say what was NOT done, so nobody infers extensions from the word "Created".
-                $this->line('No provisioning SQL configured — the database is bare. '
-                    .'Extensions and roles come from <comment>config(\'beam.dev.init\')</comment> or <comment>--init</comment>.');
+                $this->line('<comment>No provisioning SQL — the database is bare.</comment> '
+                    .'A suite whose schema needs an extension will fail in bulk on the first migration '
+                    .'that needs it, and the failures will name the migration rather than this. '
+                    .'Extensions come from <comment>config(\'beam.dev.init\')</comment> (null = this package\'s '
+                    .'canonical list) or <comment>--init</comment>.');
             }
         } catch (Throwable $e) {
             $this->components->error($e->getMessage());
@@ -161,21 +181,44 @@ class IsolatedTestDbCommand extends Command
      * named here for that reason: at least one of them is outside `base_path()` and survives the
      * mutator intact.
      *
-     * @return list<string>
+     * `null` is not `[]` here, and the whole default rests on the difference. `[]` is a project
+     * saying "bare, deliberately"; `null` is a project that has said nothing, and what it gets is
+     * this package's canonical extension list rather than a database that will manufacture hundreds
+     * of failures naming a migration. A published `config/beam/dev.php` predating 2026-08-30 carries
+     * the old literal `[]` and therefore keeps its bare database — that is the correct reading of an
+     * explicit value, and the reason this note exists.
+     *
+     * @return array{0: list<string>, 1: bool} the resolved paths, and whether they are the default
      */
-    private function initFiles(SuiteHarness $harness): array
+    private function initFiles(SuiteHarness $harness, ?string $driver): array
     {
-        $files = $this->option('init') ?: config('beam.dev.init', []);
+        if ($this->option('no-init')) {
+            return [[], false];
+        }
+
+        $declared = $this->option('init') ?: config('beam.dev.init');
+        $defaulted = $declared === null;
+
+        // The default file is `CREATE EXTENSION`, which is Postgres and nothing else. Defaulting it
+        // onto a SQLite or MySQL scratch database would turn a working invocation into a hard error
+        // about a file the caller never asked for — the opposite of what this default is for.
+        if ($defaulted && $driver !== 'pgsql') {
+            return [[], false];
+        }
+
+        $files = $defaulted ? [$this->packagedInitFile()] : (array) $declared;
+
+        $files = array_values(array_map(strval(...), $files));
 
         $resolved = array_values(array_map(
-            static fn ($path) => $harness->resolveProjectPath((string) $path, base_path()),
-            (array) $files,
+            static fn ($path) => $harness->resolveProjectPath($path, base_path()),
+            $files,
         ));
 
-        foreach ((array) $files as $index => $declared) {
+        foreach ($files as $index => $file) {
             if (! is_file($resolved[$index])) {
                 throw new RuntimeException(
-                    'Init SQL file ['.((string) $declared).'] was not found. Looked under: '
+                    'Init SQL file ['.$file.'] was not found. Looked under: '
                     .implode(', ', $harness->roots()).'. Pass an absolute path if it lives elsewhere. '
                     .'(Under a package testbench the application base path is the vendored skeleton, '
                     .'not the repo you are standing in.)'
@@ -183,7 +226,53 @@ class IsolatedTestDbCommand extends Command
             }
         }
 
-        return $resolved;
+        return [$resolved, $defaulted];
+    }
+
+    /**
+     * The canonical provisioning SQL this package ships.
+     *
+     * Absolute, and resolved off `__DIR__` rather than named in `config/beam/dev.php`, because that
+     * config file gets PUBLISHED into a host: a path literal that means "next to this package" stops
+     * meaning that the moment the file is copied into `~/Herd/<host>/config/`. So the config carries
+     * `null` — a value that survives publishing — and the path is computed here.
+     */
+    private function packagedInitFile(): string
+    {
+        return dirname(__DIR__, 2).'/database/init/extensions.sql';
+    }
+
+    /**
+     * Say which statement could not be provisioned, and what to install — not that "provisioning failed".
+     *
+     * This only runs on the defaulted path, where a failure is not fatal: the caller declared nothing,
+     * so an unavailable extension may well be one this project never uses. What it must not do is
+     * stay quiet, because the next thing that happens is a suite failing in bulk with an error that
+     * names a migration.
+     *
+     * @param  list<array{statement: string, error: string}>  $failures
+     */
+    private function reportProvisioningFailures(array $failures): void
+    {
+        if ($failures === []) {
+            return;
+        }
+
+        $this->newLine();
+        $this->components->warn(count($failures).' provisioning statement(s) could not run on this server. '
+            .'The database was still created, and a suite needing any of these will fail in bulk on a '
+            .'migration rather than here:');
+
+        foreach ($failures as $failure) {
+            $extension = ProvisioningSql::extensionIn($failure['statement']);
+
+            $this->line($extension === null
+                ? '  <comment>'.$failure['statement'].'</comment> — '.$failure['error']
+                : '  <comment>'.$extension.'</comment> — '.ProvisioningSql::hintFor($extension));
+        }
+
+        $this->line('  Once installed, re-run with <info>--drop-existing</info>. To accept a database '
+            .'without them, pass <info>--no-init</info> and this warning goes away.');
     }
 
     /**
