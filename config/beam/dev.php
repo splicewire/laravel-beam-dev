@@ -86,9 +86,28 @@ return [
     | created fine, and then the first migration needing `citext` or `vector` fails
     | with an error about the extension rather than about the missing setup step.
     |
+    | THREE values, and the difference matters:
+    |
+    |   null  — the default. Run the canonical extension SQL this package ships
+    |           (`database/init/extensions.sql`: uuid-ossp, citext, pg_trgm,
+    |           fuzzystrmatch, vector). Executed statement by statement, tolerantly:
+    |           an extension the server does not have is NAMED, with what to install,
+    |           and the rest are still provisioned.
+    |
+    |   [...] — this project's own files, run whole and in order. A failure here is
+    |           fatal, because a project that names its provisioning has declared a
+    |           requirement rather than accepted a convenience.
+    |
+    |   []    — nothing. A bare database, which is what this defaulted to until
+    |           2026-08-30. It is a legitimate choice and it is not a safe default:
+    |           `splicewire/tower`'s suite on a bare database reads
+    |           `Tests: 465 failed, 412 passed`, every failure `type "vector" does not
+    |           exist`, which looks exactly like a real regression and is not one.
+    |           `--no-init` says the same thing for a single run.
+    |
     |   'init' => ['database/init/extensions.sql'],
     |
     */
-    'init' => [],
+    'init' => null,
 
 ];

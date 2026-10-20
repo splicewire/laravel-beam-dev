@@ -157,12 +157,26 @@ class ScratchDatabases
      * then the first migration that needs `citext` or `vector` dies with an error about the
      * extension rather than about the missing provisioning step.
      *
+     * Two execution modes, and the difference is about WHOSE file it is.
+     *
+     * A project that declared its own init SQL gets the file executed whole, in one call, and any
+     * failure throws — it declared the requirement, so a database that does not meet it is not a
+     * database it asked for. That is also the only safe way to run arbitrary SQL: the statement
+     * splitter here cannot see a dollar-quoted function body.
+     *
+     * `$tolerant` is for the file THIS package ships as its default, which is five `CREATE EXTENSION`
+     * lines and nothing else. There the caller declared nothing, so a server without `vector` is not
+     * necessarily a server that needed it — the right answer is to provision everything available,
+     * report precisely what could not be provisioned, and let the caller decide. Failures come back
+     * rather than throwing, one entry per statement.
+     *
      * @param  list<string>  $paths
+     * @return list<array{statement: string, error: string}> empty unless $tolerant
      */
-    public function runSqlFiles(string $name, string $connection, array $paths): void
+    public function runSqlFiles(string $name, string $connection, array $paths, bool $tolerant = false): array
     {
         if ($paths === []) {
-            return;
+            return [];
         }
 
         if ($this->isSqlite($connection)) {
@@ -170,14 +184,31 @@ class ScratchDatabases
         }
 
         $target = $this->targetConnection($name, $connection);
+        $failures = [];
 
         foreach ($paths as $path) {
             if (! is_file($path)) {
                 throw new RuntimeException("Init SQL file [{$path}] does not exist.");
             }
 
-            $target->unprepared((string) file_get_contents($path));
+            $sql = (string) file_get_contents($path);
+
+            if (! $tolerant) {
+                $target->unprepared($sql);
+
+                continue;
+            }
+
+            foreach (ProvisioningSql::statements($sql) as $statement) {
+                try {
+                    $target->unprepared($statement);
+                } catch (Throwable $e) {
+                    $failures[] = ['statement' => $statement, 'error' => $e->getMessage()];
+                }
+            }
         }
+
+        return $failures;
     }
 
     /**
