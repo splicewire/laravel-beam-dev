@@ -66,7 +66,7 @@ class ScratchDatabases
      */
     public function drop(string $name, string $connection): bool
     {
-        $this->assertIdentifier($name);
+        $this->isSqlite($connection) ? $this->assertIdentifier($name) : $this->assertDroppableIdentifier($name);
 
         if (! $this->exists($name, $connection)) {
             return false;
@@ -84,7 +84,9 @@ class ScratchDatabases
             return true;
         }
 
-        $this->server->for($connection)->statement("DROP DATABASE IF EXISTS {$this->quote($name, $connection)}");
+        // The grammar's own wrapper, not interpolation: a hyphenated name is only valid quoted.
+        $server = $this->server->for($connection);
+        $server->statement('DROP DATABASE IF EXISTS '.$server->getQueryGrammar()->wrap($name));
 
         return true;
     }
@@ -358,6 +360,23 @@ class ScratchDatabases
                 "Refusing to operate on database name [{$name}]: names must be 1-63 characters of "
                 .'[A-Za-z0-9_] only. Database names cannot be parameter-bound, so anything outside that '
                 .'charset is rejected rather than escaped.'
+            );
+        }
+    }
+
+    /**
+     * The name a DROP may take on a server engine: the create charset plus a hyphen after the first character, because
+     * a test run's tenant delete can leave `tenant<slug>-<token>` behind and drop-db must be able to reap it. The charset
+     * still excludes every quote, space, dot, slash and terminator, and the DROP wraps the name with the grammar's own
+     * identifier quoting, so the hyphen never reaches the server unquoted. Creation keeps the strict charset.
+     */
+    private function assertDroppableIdentifier(string $name): void
+    {
+        if (! preg_match('/^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$/', $name)) {
+            throw new InvalidArgumentException(
+                "Refusing to operate on database name [{$name}]: a dropped name must be 1-63 characters of "
+                .'[A-Za-z0-9_-], not starting with a hyphen. Database names cannot be parameter-bound, so anything '
+                .'outside that charset is rejected rather than escaped.'
             );
         }
     }
