@@ -5,6 +5,7 @@ namespace Splicewire\Beam\Dev\Tests;
 use Illuminate\Support\Facades\Artisan;
 use Splicewire\Beam\Dev\Console\IsolatedTestDbCommand;
 use Splicewire\Beam\Dev\Databases\ProvisioningSql;
+use Splicewire\Beam\Dev\Databases\ScratchDatabases;
 use Splicewire\Beam\Dev\Databases\SuiteHarness;
 use Symfony\Component\Console\Input\ArrayInput;
 
@@ -111,6 +112,39 @@ class ProvisioningTest extends TestCase
 
         $this->assertStringContainsString('the database is bare', $output);
         $this->assertStringNotContainsString('Provisioned:', $output);
+    }
+
+    public function test_isolated_test_db_executes_explicit_sqlite_init_strictly(): void
+    {
+        $file = $this->scratchDir().'/explicit-init.sql';
+        file_put_contents($file, "create table init_marker (value text); insert into init_marker values ('initialized');");
+        $status = Artisan::call('splicewire:beam:dev:isolated-test-db', [
+            '--slug' => 'sqlite_explicit_init', '--init' => [$file],
+        ]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $status, $output);
+        $this->assertStringContainsString('Provisioned: explicit-init.sql', $output);
+        $this->assertSame('initialized', $this->app->make(ScratchDatabases::class)
+            ->targetConnection('test_sqlite_explicit_init', 'scratch')
+            ->table('init_marker')->value('value'));
+    }
+
+    public function test_isolated_test_db_rejects_invalid_explicit_sqlite_init_without_claiming_provisioning(): void
+    {
+        $file = $this->scratchDir().'/invalid-init.sql';
+        file_put_contents($file, 'not valid SQL');
+        $status = Artisan::call('splicewire:beam:dev:isolated-test-db', [
+            '--slug' => 'sqlite_invalid_init', '--init' => [$file],
+        ]);
+        $output = Artisan::output();
+
+        $this->assertSame(1, $status, $output);
+        $this->assertStringNotContainsString('Provisioned:', $output);
+        $this->assertStringNotContainsString('Run your suite against it', $output);
+        // This allocator retains its existing failure semantics: allocation happened, provisioning
+        // failed, and the owned per-test directory is reaped by TestCase's normal teardown.
+        $this->assertFileExists($this->scratchDir().'/test_sqlite_invalid_init.sqlite');
     }
 
     /**

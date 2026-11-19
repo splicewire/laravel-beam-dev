@@ -82,7 +82,7 @@ class IsolatedArtisanCommand extends Command
             $allocationAttempted = true;
             $databases->createExclusive($name, $connection);
             $owned = true;
-            $this->line("Allocated [{$name}] on connection [{$connection}].");
+            $this->line("Allocation issued [{$name}] on connection [{$connection}] (pending reachability verification).");
 
             // Catchable INT/TERM unwind through finally. Uncatchable termination, exit(), and a
             // termination during the allocation syscall remain explicit recovery limits.
@@ -106,6 +106,7 @@ class IsolatedArtisanCommand extends Command
             }
 
             $databases->assertReachable($name, $connection);
+            $this->line("Verified reachable [{$name}] on connection [{$connection}].");
             $databases->runSqlFiles($name, $connection, $files);
             $this->line($files === [] ? 'No provisioning SQL declared for this driver.' : 'Provisioning SQL completed.');
 

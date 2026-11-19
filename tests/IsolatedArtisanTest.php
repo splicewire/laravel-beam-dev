@@ -28,6 +28,7 @@ class IsolatedArtisanTest extends TestCase
         ]);
         $output = Artisan::output();
         $this->assertSame(0, $status, $output);
+        $this->assertStringContainsString('Verified reachable [', $output);
         $this->assertMatchesRegularExpression('/RUNNER_PROBE:(.+)/', $output);
         preg_match('/RUNNER_PROBE:(.+)/', $output, $match);
         $probe = json_decode($match[1], true, flags: JSON_THROW_ON_ERROR);
@@ -104,8 +105,8 @@ class IsolatedArtisanTest extends TestCase
     {
         [$first, $one] = $this->outcome('success');
         [$second, $two] = $this->outcome('success');
-        preg_match('/Allocated \[([^\]]+)\]/', $one, $a);
-        preg_match('/Allocated \[([^\]]+)\]/', $two, $b);
+        preg_match('/Allocation issued \[([^\]]+)\]/', $one, $a);
+        preg_match('/Allocation issued \[([^\]]+)\]/', $two, $b);
 
         $this->assertSame(0, $first, $one);
         $this->assertSame(0, $second, $two);
@@ -150,6 +151,8 @@ class IsolatedArtisanTest extends TestCase
 
         $this->assertSame(1, $status, $output);
         $this->assertStringContainsString('fixture reachability failed', $output);
+        $this->assertStringContainsString('pending reachability verification', $output);
+        $this->assertStringNotContainsString('Verified reachable [', $output);
         $this->assertStringNotContainsString('CHILD_OUTPUT', $output);
         $this->assertSame([], glob($this->scratchDir().'/test_*.sqlite'));
     }
@@ -263,7 +266,7 @@ class IsolatedArtisanTest extends TestCase
             config()->set('database.connections.scratch', array_merge($original, $override));
             [$status, $output] = $this->outcome('success');
             $this->assertSame(1, $status, $output);
-            $this->assertStringNotContainsString('Allocated [', $output);
+            $this->assertStringNotContainsString('Allocation issued [', $output);
             $this->assertSame([], glob($this->scratchDir().'/test_*.sqlite'));
         }
 
@@ -272,7 +275,7 @@ class IsolatedArtisanTest extends TestCase
         [$status, $output] = $this->outcome('success');
         $this->assertSame(1, $status, $output);
         $this->assertStringContainsString('production', $output);
-        $this->assertStringNotContainsString('Allocated [', $output);
+        $this->assertStringNotContainsString('Allocation issued [', $output);
     }
 
     public function test_catchable_int_and_term_reap_and_restore_previous_signal_handlers(): void

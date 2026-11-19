@@ -1,9 +1,16 @@
 > You are in **splicewire/laravel-beam-dev** — session-scoped scratch databases for Laravel development and testing.
 
-Two commands: `splicewire:beam:dev:isolated-test-db` creates a database nobody else is using and
-prints the env that targets it; `splicewire:beam:dev:drop-db` reaps one, several, or a prefix-scoped
-sweep. Engine-aware (pgsql / mysql / sqlite), and it borrows credentials from an existing Laravel
-connection rather than asking for its own.
+For scratch database work, `splicewire:beam:dev:isolated-test-db` allocates and prints targeting env;
+`splicewire:beam:dev:drop-db` reaps named databases or a prefix-scoped sweep. Both borrow credentials
+from an existing Laravel connection (pgsql / mysql / sqlite).
+
+For DB-dependent Artisan commands, use `splicewire:beam:dev:isolated-artisan`: it owns exclusive
+allocation, reachability, strict provisioning, migrations, command execution and guarded teardown.
+Pass the connection alias and literal command tokens; callers do not rewrite a child DB environment.
+Drop policy remains exclusively in `DropGuard` below. When teardown reports `UNRESOLVED`, preserve
+the printed name and resolve the refusal before using native `drop-db` for recovery.
+Read [runner usage and interruption limits](README.md#run-artisan-on-a-disposable-migrated-database)
+before binding a consumer or changing the runner lifecycle.
 
 ## Standalone on purpose
 

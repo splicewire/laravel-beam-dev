@@ -37,7 +37,9 @@ Explicit `--init=/absolute/file.sql` (repeatable) or `beam.dev.init` files run *
 migrations; this includes SQLite SQL. The packaged PostgreSQL extension default is used only for
 PostgreSQL, also strictly for this runner. Its failure stops execution. An explicit empty config
 list means no provisioning. The existing `isolated-test-db` command retains its tolerant packaged
-PostgreSQL provisioning behavior. No new `--no-init`, force or drop-existing escape is provided.
+PostgreSQL provisioning behavior. Its explicit SQLite `--init` / `beam.dev.init` files now also
+execute strictly: invalid SQL fails `isolated-test-db`, while its existing allocation and failure
+retention behavior is unchanged. No new runner `--no-init`, force or drop-existing escape is provided.
 
 Command output and nonzero exit status are preserved. Catchable exceptions fail the run. Before
 cleanup the runner restores the original alias/default and purges their handles, read/write handles
@@ -46,12 +48,21 @@ A refusal or deletion failure returns nonzero and prints `UNRESOLVED [database]`
 alias. Keep that name and use the native `splicewire:beam:dev:drop-db` command once the refusal is
 resolved; do not issue a raw DROP. The runner does not dump connection configuration.
 
-With `pcntl` available, SIGINT/SIGTERM during the owned run unwind through cleanup and return
-128+signal (unless cleanup fails). Prior handlers and async mode are restored. During cleanup,
-additional INT/TERM are ignored so cleanup can finish. This is best effort: `exit()`, SIGKILL,
-interpreter crashes, missing `pcntl`, termination during allocation, or a child replacing signal
-handlers can leave a database behind. No always-clean guarantee is made. Long blocking native calls
-may delay signal handling. Save the printed allocation name for native guarded recovery.
+With `pcntl` available, the runner owns INT/TERM handling; a child command's subscribed signal
+handlers are not registered by direct `Command::run`. A signal caught during protected execution
+unwinds through cleanup and normally returns 128+signal (unless cleanup fails). A signal arriving
+inside the error-reporting catch block can propagate after cleanup instead of returning that status.
+Prior handlers and async mode are restored. During cleanup, additional INT/TERM are ignored so it
+can finish. Between allocation and handler registration, the previous/default handlers still apply.
+This is best effort: `exit()`, SIGKILL, interpreter crashes, missing `pcntl`, termination in that
+allocation/registration window, or a child replacing handlers can leave a database behind. Long
+blocking native calls may delay signal handling. Save the pending allocation name for native
+recovery; a separate `Verified reachable` line appears only after the reachability check succeeds.
+
+Restoring configuration does not preserve an existing PDO session: cleanup purges the caller's
+original default handle even when a different alias was selected. An in-process caller with an
+in-memory SQLite default loses that database's contents. Use a fresh CLI process for such callers;
+the runner does not promise to preserve their in-memory state.
 
 For `test-full` consumers, bind this command through the existing native executor and its slot
 lease; do not wrap it in another allocator, child DB-env mutator or raw-drop cleanup. Package proof
