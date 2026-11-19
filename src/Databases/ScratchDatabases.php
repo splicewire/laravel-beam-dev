@@ -62,6 +62,37 @@ class ScratchDatabases
     }
 
     /**
+     * Allocate a NEW database only. A collision is never adopted, overwritten or subsequently reaped.
+     * SQLite uses exclusive file creation; server DDL deliberately has no IF NOT EXISTS clause.
+     */
+    public function createExclusive(string $name, string $connection): void
+    {
+        $this->assertIdentifier($name);
+
+        if ($this->isSqlite($connection)) {
+            $path = $this->sqlitePath($name);
+
+            if (! is_dir(dirname($path)) && ! @mkdir(dirname($path), 0755, true) && ! is_dir(dirname($path))) {
+                throw new RuntimeException('Could not create the scratch database directory.');
+            }
+
+            $file = @fopen($path, 'x');
+
+            if ($file === false) {
+                throw new RuntimeException("Could not exclusively create [{$name}]; an existing path is never adopted.");
+            }
+
+            fclose($file);
+
+            return;
+        }
+
+        if ($this->server->for($connection)->statement("CREATE DATABASE {$this->quote($name, $connection)}") !== true) {
+            throw new RuntimeException("Exclusive CREATE DATABASE [{$name}] did not succeed; no ownership was acquired.");
+        }
+    }
+
+    /**
      * @return bool whether the database was dropped (false = it did not exist)
      */
     public function drop(string $name, string $connection): bool
@@ -179,10 +210,6 @@ class ScratchDatabases
     {
         if ($paths === []) {
             return [];
-        }
-
-        if ($this->isSqlite($connection)) {
-            throw new RuntimeException('SQLite scratch databases do not support --init SQL files.');
         }
 
         $target = $this->targetConnection($name, $connection);

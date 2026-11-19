@@ -5,6 +5,7 @@ namespace Splicewire\Beam\Dev;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Splicewire\Beam\Dev\Console\DropDbCommand;
+use Splicewire\Beam\Dev\Console\IsolatedArtisanCommand;
 use Splicewire\Beam\Dev\Console\IsolatedTestDbCommand;
 use Splicewire\Beam\Dev\Console\LoadCommand;
 use Splicewire\Beam\Dev\Console\WireNamesCommand;
@@ -69,6 +70,7 @@ class BeamDevServiceProvider extends PackageServiceProvider
     {
         if ($this->app->runningInConsole() && ! $this->app->environment('production')) {
             $this->commands([
+                IsolatedArtisanCommand::class,
                 IsolatedTestDbCommand::class,
                 DropDbCommand::class,
                 WireNamesCommand::class,

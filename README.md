@@ -9,6 +9,55 @@ Despite the name it depends on nothing from the beam family. It's a plain Larave
 composer require --dev splicewire/laravel-beam-dev
 ```
 
+## Run Artisan on a disposable migrated database
+
+`isolated-artisan` owns allocation, reachability, provisioning, migrations, command execution and
+guarded teardown in the same PHP process. Use a configured **connection alias**, including aliases
+such as `central`; it becomes the default while the command runs and its original configuration is
+restored afterwards. No caller-side DB environment rewrite is needed.
+
+```bash
+php artisan splicewire:beam:dev:isolated-artisan --connection=central -- frame:manifest:dump --write
+php artisan splicewire:beam:dev:isolated-artisan --connection=central -- routes:capture-tenant-operator-inventory --write
+```
+
+Put the separator `--` before the requested command so its options belong to it. Argument tokens
+are passed directly through Symfony `ArgvInput`, never through a shell. Programmatic callers can use
+`Artisan::call('splicewire:beam:dev:isolated-artisan', ['--connection' => 'central',
+'artisan' => 'frame:manifest:dump', 'arguments' => ['--write']])`.
+
+Each invocation allocates a fresh random name under `beam.dev.prefix`; an existing database is
+never adopted, overwritten or deleted as part of allocation. SQLite uses exclusive file creation;
+server engines use exclusive CREATE DATABASE. Production, in-memory SQLite, URL-based connections
+and read/write configurations are refused before allocation. Only the selected alias/default is
+retargeted: a requested command that explicitly chooses a different connection is outside that
+isolation boundary. This is a development lifecycle tool, not a sandbox for untrusted commands.
+
+Explicit `--init=/absolute/file.sql` (repeatable) or `beam.dev.init` files run **strictly**, before
+migrations; this includes SQLite SQL. The packaged PostgreSQL extension default is used only for
+PostgreSQL, also strictly for this runner. Its failure stops execution. An explicit empty config
+list means no provisioning. The existing `isolated-test-db` command retains its tolerant packaged
+PostgreSQL provisioning behavior. No new `--no-init`, force or drop-existing escape is provided.
+
+Command output and nonzero exit status are preserved. Catchable exceptions fail the run. Before
+cleanup the runner restores the original alias/default and purges their handles, read/write handles
+and temporary target/maintenance connections; `DropGuard` alone decides whether teardown is allowed.
+A refusal or deletion failure returns nonzero and prints `UNRESOLVED [database]` with the connection
+alias. Keep that name and use the native `splicewire:beam:dev:drop-db` command once the refusal is
+resolved; do not issue a raw DROP. The runner does not dump connection configuration.
+
+With `pcntl` available, SIGINT/SIGTERM during the owned run unwind through cleanup and return
+128+signal (unless cleanup fails). Prior handlers and async mode are restored. During cleanup,
+additional INT/TERM are ignored so cleanup can finish. This is best effort: `exit()`, SIGKILL,
+interpreter crashes, missing `pcntl`, termination during allocation, or a child replacing signal
+handlers can leave a database behind. No always-clean guarantee is made. Long blocking native calls
+may delay signal handling. Save the printed allocation name for native guarded recovery.
+
+For `test-full` consumers, bind this command through the existing native executor and its slot
+lease; do not wrap it in another allocator, child DB-env mutator or raw-drop cleanup. Package proof
+uses the declared PHPUnit/Testbench bootstrap; host proof additionally needs the host's verified
+installed composition and native bootstrap. This source addition alone does not establish host proof.
+
 ## The problem
 
 Two test runs sharing one database wreck each other. A schema rebuild, a `RefreshDatabase`, a
