@@ -4,6 +4,7 @@ namespace Splicewire\Beam\Dev\Console;
 
 use Illuminate\Console\Command;
 use RuntimeException;
+use Splicewire\Beam\Dev\Databases\DropGuard;
 use Splicewire\Beam\Dev\Databases\IsolationGuard;
 use Splicewire\Beam\Dev\Databases\ProvisioningSql;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
@@ -354,6 +355,13 @@ class IsolatedTestDbCommand extends Command
         $this->line('Drop scratch databases in a batch at the end of the working session, not after each run:');
         $this->line('  <info>php artisan splicewire:beam:dev:drop-db '.$name
             .($connection === (string) config('database.default') ? '' : " --connection={$connection}").'</info>');
+
+        if (app(DropGuard::class)->refuseOwnScratch($name, $connection, (string) config('beam.dev.prefix', 'test_'), named: true) === null) {
+            $this->newLine();
+            $this->line("Only if connection [{$connection}] is configured to use this owned scratch database [{$name}]:");
+            $this->line("  <info>php artisan splicewire:beam:dev:drop-db {$name} --connection={$connection} --own-scratch={$name}</info>");
+            $this->line('  Production and active-session safeguards still apply.');
+        }
     }
 
     /**

@@ -445,8 +445,13 @@ after it.
    rewrite the child's `DB_DATABASE` to get past this rule:
 
    ```bash
-   php artisan splicewire:beam:dev:drop-db test_space_s1_acme_app_0123abcd --own-scratch=test_space_
+   php artisan splicewire:beam:dev:drop-db test_space_s1_acme_app_0123abcd --connection=central --own-scratch=test_space_s1_acme_app_0123abcd
    ```
+
+   The allocator keeps its ordinary drop hint. For names accepted by `DropGuard::refuseOwnScratch()`,
+   it also prints a conditional alternative with the explicit connection alias and the exact allocated
+   name as `--own-scratch`. Use that alternative only when the alias is configured to use this owned
+   scratch database. Production and active-session safeguards still apply.
 
    It applies only on pgsql (beam-dev drops from its own session on `postgres`), only to databases
    named explicitly (never by `--pattern`, `--all` or a parallel-worker expansion), and only when the name starts with the prefix you
