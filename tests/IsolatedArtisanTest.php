@@ -118,8 +118,7 @@ class IsolatedArtisanTest extends TestCase
 
     public function test_collision_is_not_adopted_overwritten_or_dropped(): void
     {
-        $databases = new class($this->app->make(ServerConnection::class), config()) extends ScratchDatabases
-        {
+        $databases = new class ($this->app->make(ServerConnection::class), config()) extends ScratchDatabases {
             public string $collision;
 
             public function createExclusive(string $name, string $connection): void
@@ -140,8 +139,7 @@ class IsolatedArtisanTest extends TestCase
 
     public function test_unreachable_new_database_is_reaped_without_running_the_command(): void
     {
-        $this->app->instance(ScratchDatabases::class, new class($this->app->make(ServerConnection::class), config()) extends ScratchDatabases
-        {
+        $this->app->instance(ScratchDatabases::class, new class ($this->app->make(ServerConnection::class), config()) extends ScratchDatabases {
             public function assertReachable(string $name, string $connection): void
             {
                 throw new RuntimeException('fixture reachability failed');
@@ -205,8 +203,7 @@ class IsolatedArtisanTest extends TestCase
 
     public function test_teardown_refusal_is_nonzero_and_names_the_unresolved_database(): void
     {
-        $this->app->instance(ScratchDatabases::class, new class($this->app->make(ServerConnection::class), config()) extends ScratchDatabases
-        {
+        $this->app->instance(ScratchDatabases::class, new class ($this->app->make(ServerConnection::class), config()) extends ScratchDatabases {
             public function activeConnections(string $name, string $connection): int
             {
                 return 1;
@@ -239,8 +236,7 @@ class IsolatedArtisanTest extends TestCase
 
     public function test_teardown_exception_is_nonzero_and_restores_configuration(): void
     {
-        $this->app->instance(ScratchDatabases::class, new class($this->app->make(ServerConnection::class), config()) extends ScratchDatabases
-        {
+        $this->app->instance(ScratchDatabases::class, new class ($this->app->make(ServerConnection::class), config()) extends ScratchDatabases {
             public function drop(string $name, string $connection): bool
             {
                 throw new RuntimeException('fixture drop failed');
@@ -309,7 +305,6 @@ class IsolatedArtisanTest extends TestCase
 
         return [$status, Artisan::output()];
     }
-
 }
 
 class IsolatedArtisanProbe extends Command
@@ -330,7 +325,6 @@ class IsolatedArtisanProbe extends Command
         return 0;
     }
 }
-
 
 class IsolatedArtisanOutcome extends Command
 {
