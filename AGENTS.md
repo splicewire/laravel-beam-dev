@@ -68,6 +68,10 @@ Two of the four rules are **not** overridable by `--force`, and tests pin both:
   for yanking one out from under a running suite. That failure mode is the reason this package
   exists; re-introducing it via a flag would be self-defeating.
 
+Rule 2 (never the connection's own database) has exactly one exception, `drop-db --own-scratch=<prefix>`,
+decided in `DropGuard::refuseOwnScratch()` and pinned by `tests/OwnScratchDropTest.php`: pgsql only, named
+databases only, a prefix that extends `test_` and the scratch prefix and is longer than both. Do not widen it.
+
 Database names are interpolated into DDL (they cannot be bound), so they are validated against an
 identifier charset and rejected, never escaped.
 

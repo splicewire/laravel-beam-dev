@@ -440,6 +440,20 @@ after it.
    production database is one someone eventually flips in the wrong shell.
 2. **Never the connection's own database.** The database your app is configured to use is the one
    thing on that server that certainly isn't scratch.
+   One narrow exception: a host pointed *at* a scratch database (say a per-worktree database its
+   own `.env` names) can drop it from its own app with `--own-scratch=<prefix>`, so nobody has to
+   rewrite the child's `DB_DATABASE` to get past this rule:
+
+   ```bash
+   php artisan splicewire:beam:dev:drop-db test_space_s1_acme_app_0123abcd --own-scratch=test_space_
+   ```
+
+   It applies only on pgsql (beam-dev drops from its own session on `postgres`), only to databases
+   named explicitly (never by `--pattern`, `--all` or a parallel-worker expansion), and only when the name starts with the prefix you
+   pass. The prefix must be `[a-z0-9_]`, extend both `test_` and the scratch prefix, and be longer
+   than either, so it can narrow the scratch namespace but never widen it. The command first closes
+   the handles its own boot opened on that database and waits (up to ~5s) for the server to let those sessions go; rules 1 and 4 still apply, so any *other*
+   session on it refuses the drop. On mysql/mariadb and sqlite the option is refused.
 3. **Only names matching the prefix**, unless `--force`. That prefix is the line between "a throwaway
    this tool made" and "someone's database that happens to live on the same server".
 4. **Never one with live sessions.** A scratch database with another process connected is somebody

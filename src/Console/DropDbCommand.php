@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Splicewire\Beam\Dev\Databases\DropGuard;
 use Splicewire\Beam\Dev\Databases\IsolationGuard;
 use Splicewire\Beam\Dev\Databases\ScratchDatabases;
+use Splicewire\Beam\Dev\Databases\ServerConnection;
 use Throwable;
 
 /**
@@ -28,7 +29,8 @@ class DropDbCommand extends Command
         {--all : Drop every database matching the configured scratch prefix}
         {--dry-run : Report what would be dropped without dropping anything}
         {--keep-workers : Do not also drop the <name>_test_<token> parallel-worker databases}
-        {--force : Allow names outside the scratch prefix (never overrides the other guards)}';
+        {--force : Allow names outside the scratch prefix (never overrides the other guards)}
+        {--own-scratch= : Allow the connection\'s OWN configured database when it is named and starts with this prefix, which must extend test_ and the scratch prefix (pgsql only; live sessions still refuse)}';
 
     protected $description = 'Drop scratch databases, one or many, with guards';
 
@@ -46,6 +48,26 @@ class DropDbCommand extends Command
             $this->components->error($reason);
 
             return self::FAILURE;
+        }
+
+        $ownScratch = $this->option('own-scratch');
+        $ownScratch = $ownScratch === null ? null : (string) $ownScratch;
+        $own = null;
+        $named = array_values(array_map('strval', (array) $this->argument('names')));
+
+        // A bare `--own-scratch` arrives as null; say so rather than silently judging without it.
+        if ($ownScratch === null && $this->input->hasParameterOption('--own-scratch')) {
+            $ownScratch = '';
+        }
+
+        if ($ownScratch !== null) {
+            if ($reason = $guard->refuseOwnScratch($ownScratch, $connection, $prefix, $named !== [])) {
+                $this->components->error($reason);
+
+                return self::FAILURE;
+            }
+
+            $own = app(ServerConnection::class)->databaseFor($connection);
         }
 
         try {
@@ -66,7 +88,13 @@ class DropDbCommand extends Command
         $refused = 0;
 
         foreach ($targets as $name) {
-            if ($reason = $guard->refuse($name, $connection, $prefix, (bool) $this->option('force'))) {
+            // This process's own handles on the target (an app boot that connected to its configured
+            // database) are released first, so the guard's live-session count sees only OTHER sessions.
+            if ($own !== null && $name === $own && in_array($name, $named, true)) {
+                $databases->releaseLocalHandles($name, $connection);
+            }
+
+            if ($reason = $guard->refuse($name, $connection, $prefix, (bool) $this->option('force'), $ownScratch, in_array($name, $named, true))) {
                 $this->components->warn("Skipped {$reason}");
                 $refused++;
 
@@ -82,7 +110,7 @@ class DropDbCommand extends Command
 
             try {
                 $databases->drop($name, $connection)
-                    ? $this->components->info("Dropped {$name}")
+                    ? $this->components->info("Dropped {$name}".($name === $own ? " (the connection's own database, --own-scratch={$ownScratch})" : ''))
                     : $this->components->warn("Skipped [{$name}] — it does not exist.");
                 $dropped++;
             } catch (Throwable $e) {

@@ -123,6 +123,60 @@ class ScratchDatabases
     }
 
     /**
+     * Disconnect every connection THIS process holds open on $name, and wait until the server has let
+     * those sessions go.
+     *
+     * Only for `drop-db --own-scratch`: a host whose configured database is the target may have
+     * connected to it while booting, and that session would otherwise count as a live one (and make
+     * the server refuse the DROP). Postgres removes a backend from pg_stat_activity shortly AFTER the
+     * client hangs up, so on pgsql the backend pids are read first and the wait lasts until they are
+     * gone (at most ~5s; a session still there then is counted, and refuses, as any other would). A
+     * persistent PDO never closes and so refuses the same way. Nothing here decides whether the drop
+     * is allowed; that is still {@see DropGuard::refuse()}, asked afterwards.
+     */
+    public function releaseLocalHandles(string $name, string $connection): void
+    {
+        $db = app('db');
+        $pids = [];
+
+        foreach ($db->getConnections() as $alias => $open) {
+            if ($open->getDatabaseName() !== $name || str_starts_with((string) $alias, 'beam-dev-server:')) {
+                continue;
+            }
+
+            if ($open->getDriverName() === 'pgsql') {
+                try {
+                    $pids[] = (int) ((array) $open->selectOne('select pg_backend_pid() as pid'))['pid'];
+                } catch (Throwable) {
+                    // Not connected (or already gone): nothing to wait for.
+                }
+            }
+
+            $db->purge((string) $alias);
+        }
+
+        $pids = array_values(array_filter($pids));
+
+        if ($pids === [] || $this->server->driverFor($connection) !== 'pgsql') {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($pids), '?'));
+        $server = $this->server->for($connection);
+
+        for ($i = 0; $i < 50; $i++) {
+            $row = (array) $server
+                ->selectOne("select count(*) as total from pg_stat_activity where pid in ({$placeholders})", $pids);
+
+            if ((int) ($row['total'] ?? 0) === 0) {
+                return;
+            }
+
+            usleep(100_000);
+        }
+    }
+
+    /**
      * Database names on the server, optionally filtered by a SQL LIKE pattern (`test\_%`).
      *
      * @return list<string>
