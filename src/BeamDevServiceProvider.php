@@ -8,6 +8,7 @@ use Splicewire\Beam\Dev\Console\DropDbCommand;
 use Splicewire\Beam\Dev\Console\IsolatedArtisanCommand;
 use Splicewire\Beam\Dev\Console\IsolatedTestDbCommand;
 use Splicewire\Beam\Dev\Console\LoadCommand;
+use Splicewire\Beam\Dev\Console\WalkDatabaseCommand;
 use Splicewire\Beam\Dev\Console\WireNamesCommand;
 use Splicewire\Beam\Dev\Console\WitnessRunCommand;
 use Splicewire\Beam\Dev\Databases\DropGuard;
@@ -73,6 +74,7 @@ class BeamDevServiceProvider extends PackageServiceProvider
                 IsolatedArtisanCommand::class,
                 IsolatedTestDbCommand::class,
                 DropDbCommand::class,
+                WalkDatabaseCommand::class,
                 WireNamesCommand::class,
                 WitnessRunCommand::class,
                 LoadCommand::class,

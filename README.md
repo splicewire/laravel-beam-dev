@@ -178,6 +178,40 @@ run, the worker is already booted.
 work, so the scratch database is provisioned with exactly the access the app itself has. There's
 nothing new to configure and nothing to keep in sync.
 
+## Serve a walk using a private PostgreSQL room
+
+Start and stop the private, socket-only PostgreSQL cluster with the walk harness. Beam-dev
+allocates and retires the database inside that cluster. Pass the owned, mode-0700 room and its
+socket directory, port and trust-authenticated role. Both the real server's data directory and
+socket directory must be inside the room, and the server must have no TCP listener.
+
+```sh
+php artisan splicewire:beam:dev:walk-db create \
+  --room="$ROOM" --socket="$SOCKET" --port="$PORT" --user="$ROLE" \
+  --init="$APP/database/init/extensions.sql" --write-env="$APP/.env"
+```
+
+Create returns a run-unique name after reachability and strict project SQL succeed in that
+database. Pass `--init` once per file. Any init error fails the command and attempts guarded
+retirement of the new database. If retirement is refused, retain the printed unresolved name.
+
+`--write-env` is optional. It updates the existing regular scratch app `.env` inside the room
+after successful initialization. It writes the PostgreSQL connection keys, clears the database
+URL and password keys, and preserves other entries without printing their values. Use a separate
+scratch app directory per serving run and start it without inherited DB environment overrides.
+This mode is independent of the PHPUnit harness's driver and pinned-env settings.
+
+After the app and its clients stop, retire the exact returned name with the original room endpoint:
+
+```sh
+php artisan splicewire:beam:dev:walk-db drop \
+  --room="$ROOM" --socket="$SOCKET" --port="$PORT" --user="$ROLE" --name="$DATABASE"
+```
+
+Active sessions are refused by DropGuard. There is no force option. After retirement, stop the
+private cluster with the harness.
+
+
 ## Configuration
 
 ```php
