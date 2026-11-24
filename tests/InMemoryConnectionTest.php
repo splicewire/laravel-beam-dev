@@ -3,6 +3,7 @@
 namespace Splicewire\Beam\Dev\Tests;
 
 use Illuminate\Support\Facades\Artisan;
+use RuntimeException;
 use Splicewire\Beam\Dev\Databases\IsolationGuard;
 
 /**
@@ -27,7 +28,7 @@ class InMemoryConnectionTest extends TestCase
         ]);
         $app['config']->set('database.connections.pgsql', [
             'driver' => 'pgsql',
-            'host' => '127.0.0.1',
+            'host' => 'fixture.invalid',
             'database' => 'app',
         ]);
 
@@ -82,11 +83,19 @@ class InMemoryConnectionTest extends TestCase
 
     public function test_an_explicit_server_connection_is_still_accepted_past_the_guard(): void
     {
-        // No server is running for [pgsql] here, so this must fail on the CONNECTION, never on the
-        // in-memory guard — the guard is about the connection you named, not about the app default.
-        Artisan::call('splicewire:beam:dev:isolated-test-db', ['--slug' => 'x', '--connection' => 'pgsql']);
+        $refusal = 'Fixture PostgreSQL connection refused.';
+        // Fail at the maintenance connection factory before Laravel can open a socket.
+        $this->app['db']->extend('pgsql', function (array $config, string $name) use ($refusal): never {
+            $this->assertSame('beam-dev-server:pgsql', $name);
+            $this->assertSame('postgres', $config['database']);
 
-        $this->assertStringNotContainsString('in-memory', Artisan::output());
+            throw new RuntimeException($refusal);
+        });
+
+        $status = Artisan::call('splicewire:beam:dev:isolated-test-db', ['--slug' => 'x', '--connection' => 'pgsql']);
+
+        $this->assertSame(1, $status);
+        $this->assertStringContainsString($refusal, Artisan::output());
     }
 
     public function test_the_in_memory_predicate_is_engine_aware(): void
