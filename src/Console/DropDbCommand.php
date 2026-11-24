@@ -50,6 +50,9 @@ class DropDbCommand extends Command
             return self::FAILURE;
         }
 
+        $server = app(ServerConnection::class);
+        $selected = "connection [{$connection}] ({$server->driverFor($connection)})";
+
         $ownScratch = $this->option('own-scratch');
         $ownScratch = $ownScratch === null ? null : (string) $ownScratch;
         $own = null;
@@ -67,7 +70,7 @@ class DropDbCommand extends Command
                 return self::FAILURE;
             }
 
-            $own = app(ServerConnection::class)->databaseFor($connection);
+            $own = $server->databaseFor($connection);
         }
 
         try {
@@ -79,7 +82,7 @@ class DropDbCommand extends Command
         }
 
         if ($targets === []) {
-            $this->components->info('No matching databases.');
+            $this->components->info("No matching databases on {$selected}.");
 
             return self::SUCCESS;
         }
@@ -95,14 +98,14 @@ class DropDbCommand extends Command
             }
 
             if ($reason = $guard->refuse($name, $connection, $prefix, (bool) $this->option('force'), $ownScratch, in_array($name, $named, true))) {
-                $this->components->warn("Skipped {$reason}");
+                $this->components->warn("Skipped on {$selected}: {$reason}");
                 $refused++;
 
                 continue;
             }
 
             if ($this->option('dry-run')) {
-                $this->line("Would drop <comment>{$name}</comment>.");
+                $this->line("Would drop <comment>{$name}</comment> on {$selected}.");
                 $dropped++;
 
                 continue;
@@ -110,8 +113,8 @@ class DropDbCommand extends Command
 
             try {
                 $databases->drop($name, $connection)
-                    ? $this->components->info("Dropped {$name}".($name === $own ? " (the connection's own database, --own-scratch={$ownScratch})" : ''))
-                    : $this->components->warn("Skipped [{$name}] — it does not exist.");
+                    ? $this->components->info("Dropped {$name}".($name === $own ? " (the connection's own database, --own-scratch={$ownScratch})" : '')." on {$selected}")
+                    : $this->components->warn("Skipped [{$name}] — it does not exist on {$selected}.");
                 $dropped++;
             } catch (Throwable $e) {
                 $this->components->error("Failed to drop [{$name}]: {$e->getMessage()}");

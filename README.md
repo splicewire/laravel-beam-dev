@@ -107,6 +107,13 @@ php artisan splicewire:beam:dev:drop-db --all --dry-run
 php artisan splicewire:beam:dev:drop-db --pattern='test\_ci\_%'
 ```
 
+An exact name is looked up on the connection selected by `--connection`, or on the app's default
+connection when the option is omitted. A missing-name warning names the alias and driver that were
+checked. If the app defaults to SQLite and the scratch database is on PostgreSQL, pass the configured
+PostgreSQL alias for the intended server, for example
+`php artisan splicewire:beam:dev:drop-db test_9f2ab41c --connection=pgsql --dry-run`.
+The normal drop guards also apply to databases created outside beam-dev.
+
 ### One database per session, not per run
 
 Called bare, the command mints a **random** name, so calling it twice hands you two databases — two
