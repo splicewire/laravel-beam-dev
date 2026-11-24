@@ -178,6 +178,21 @@ run, the worker is already booted.
 work, so the scratch database is provisioned with exactly the access the app itself has. There's
 nothing new to configure and nothing to keep in sync.
 
+## Diagnose a native allocator PHP memory exit
+
+Some PHP processes exhaust their memory limit before Artisan can enter the allocator. A native
+caller can opt in for its own child process with `BEAM_DEV_ALLOCATOR_MEMORY_DIAGNOSTIC=1`:
+
+```sh
+BEAM_DEV_ALLOCATOR_MEMORY_DIAGNOSTIC=1 php -d memory_limit=128M artisan splicewire:beam:dev:isolated-test-db …
+```
+
+Composer loads the small hook in all processes, but the hook registers a shutdown callback and
+reserves 128 KiB only for opted-in CLI calls to `isolated-test-db` or `walk-db create`. It reports a
+PHP memory-limit fatal on stderr, without changing the failure exit or claiming a database outcome.
+If an allocation was attempted, verify its scratch name before retrying at the normal 1G limit.
+An OS kill, a failure before Composer loads the file, or another fatal keeps its original behavior.
+
 ## Serve a walk using a private PostgreSQL room
 
 Start and stop the private, socket-only PostgreSQL cluster with the walk harness. Beam-dev
