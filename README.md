@@ -108,8 +108,10 @@ php artisan splicewire:beam:dev:drop-db --pattern='test\_ci\_%'
 ```
 
 An exact name is looked up on the connection selected by `--connection`, or on the app's default
-connection when the option is omitted. A missing-name warning names the alias and driver that were
-checked. If the app defaults to SQLite and the scratch database is on PostgreSQL, pass the configured
+connection when the option is omitted, by exact name (never LIKE, where `_` would match any
+character). A missing-name warning names the alias and driver that were checked. It also names any other
+configured pgsql/mysql/mariadb connection whose server does hold the name; each server is asked once,
+read-only, and an unreachable one is passed over. If the app defaults to SQLite and the scratch database is on PostgreSQL, pass the configured
 PostgreSQL alias for the intended server, for example
 `php artisan splicewire:beam:dev:drop-db test_9f2ab41c --connection=pgsql --dry-run`.
 The normal drop guards also apply to databases created outside beam-dev.

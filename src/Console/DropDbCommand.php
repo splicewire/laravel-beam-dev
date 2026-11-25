@@ -114,7 +114,7 @@ class DropDbCommand extends Command
             try {
                 $databases->drop($name, $connection)
                     ? $this->components->info("Dropped {$name}".($name === $own ? " (the connection's own database, --own-scratch={$ownScratch})" : '')." on {$selected}")
-                    : $this->components->warn("Skipped [{$name}] — it does not exist on {$selected}.");
+                    : $this->components->warn("Skipped [{$name}] — it does not exist on {$selected}.".$this->elsewhere($databases, $server, $name, $connection));
                 $dropped++;
             } catch (Throwable $e) {
                 $this->components->error("Failed to drop [{$name}]: {$e->getMessage()}");
@@ -125,6 +125,48 @@ class DropDbCommand extends Command
         // Refusals alone are a failure; a partial sweep is not. Skipping a database another run is
         // using is the guard working, and should not fail a cleanup step in CI that dropped the rest.
         return $dropped === 0 && $refused > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * For a name missing on the selected connection: the other configured server connections whose server does
+     * hold it, as a sentence for the warning ('' when none does).
+     *
+     * A database the default connection cannot see is most often on another configured server (an app defaulting
+     * to SQLite with its test databases on PostgreSQL). Each other pgsql/mysql/mariadb connection is asked once
+     * per server, by exact name and read-only. A connection that cannot be reached is passed over. Nothing is
+     * dropped there: the hint only names the `--connection` to run again with, where every guard still applies.
+     */
+    private function elsewhere(ScratchDatabases $databases, ServerConnection $server, string $name, string $selected): string
+    {
+        $asked = [$server->serverKeyFor($selected) => true];
+        $found = [];
+
+        foreach (array_keys((array) config('database.connections', [])) as $other) {
+            $other = (string) $other;
+
+            if ($other === $selected || str_starts_with($other, 'beam-dev-server:')
+                || ! in_array($server->driverFor($other), ['pgsql', 'mysql', 'mariadb'], true)) {
+                continue;
+            }
+
+            $key = $server->serverKeyFor($other);
+
+            if (isset($asked[$key])) {
+                continue;
+            }
+
+            $asked[$key] = true;
+
+            try {
+                if ($databases->exists($name, $other)) {
+                    $found[] = "connection [{$other}] ({$server->driverFor($other)}): pass --connection={$other}";
+                }
+            } catch (Throwable) {
+                continue;
+            }
+        }
+
+        return $found === [] ? '' : ' It does exist on '.implode('; and on ', $found).'.';
     }
 
     /**

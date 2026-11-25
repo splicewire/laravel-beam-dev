@@ -28,13 +28,28 @@ class ScratchDatabases
         private Repository $config,
     ) {}
 
+    /**
+     * Whether the server holds a database named exactly $name.
+     *
+     * By equality, never LIKE: `_` is a LIKE wildcard and nearly every scratch name carries one, so a LIKE lookup
+     * of `test_a_b` answered for `test_aXb` too. Then `drop()` reported a database it never touched as dropped,
+     * and `create()` reported one it never made as already there. {@see names()} keeps LIKE for `--pattern`.
+     */
     public function exists(string $name, string $connection): bool
     {
         if ($this->isSqlite($connection)) {
             return is_file($this->sqlitePath($name));
         }
 
-        return $this->names($connection, $name) !== [];
+        $driver = $this->server->driverFor($connection);
+
+        $sql = match ($driver) {
+            'pgsql' => 'select 1 as found from pg_database where datname = ?',
+            'mysql', 'mariadb' => 'select 1 as found from information_schema.schemata where schema_name = ?',
+            default => throw new InvalidArgumentException("Unsupported driver [{$driver}]."),
+        };
+
+        return $this->server->for($connection)->select($sql, [$name]) !== [];
     }
 
     /**

@@ -78,6 +78,23 @@ class ServerConnection
     }
 
     /**
+     * Which server $connection reaches, as a comparable key: two connections with the same key ask the same server
+     * the same question, so one answer stands for both. No credential is part of the key.
+     */
+    public function serverKeyFor(string $connection): string
+    {
+        $config = $this->configFor($connection);
+
+        return (string) json_encode([
+            $config['driver'] ?? null,
+            $config['url'] ?? null,
+            $config['host'] ?? null,
+            $config['port'] ?? null,
+            $config['unix_socket'] ?? null,
+        ]);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function configFor(string $connection): array
